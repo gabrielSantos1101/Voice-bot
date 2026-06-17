@@ -1,5 +1,4 @@
 defmodule ArcaneVoice.Connectivity.Redis do
-  alias ArcaneVoice.Presence
   use GenServer
   require Logger
 
@@ -38,8 +37,7 @@ defmodule ArcaneVoice.Connectivity.Redis do
         # Ignore messages from the same node
         {:noreply, state}
 
-      %{"user_id" => uid, "diff" => diff} ->
-        Presence.sync(uid, diff, true)
+      %{"user_id" => _uid, "diff" => _diff} ->
         {:noreply, state}
 
       _ ->

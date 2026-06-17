@@ -11,9 +11,7 @@ defmodule ArcaneVoice.Gateway.Client do
 
   @intents %{
     guilds: 1 <<< 0,
-    guild_members: 1 <<< 1,
     guild_voice_states: 1 <<< 7,
-    guild_presences: 1 <<< 8,
     guild_messages: 1 <<< 9,
     direct_messages: 1 <<< 12,
     message_content: 1 <<< 15
@@ -267,73 +265,17 @@ defmodule ArcaneVoice.Gateway.Client do
   end
 
   def handle_event({:guild_create, payload}, state) do
-    create_member_presences(payload)
+    Logger.info("Guild available: #{payload.data["id"]}")
 
     # The ArcaneVoice guild is above the large_threshold, so we need to use Opcode 8: Request Guild Members
     request_payload =
       payload_build_json(opcode(opcodes(), :request_guild_members), %{
         "guild_id" => payload.data["id"],
         "limit" => 0,
-        "query" => "",
-        "presences" => true
+        "query" => ""
       })
 
     :websocket_client.cast(self(), {:binary, request_payload})
-
-    {:ok, state}
-  end
-
-  def handle_event({:presence_update, payload}, state) do
-    ArcaneVoice.Metrics.Collector.inc(:counter, :arcane_voice_presence_updates)
-
-    with {:ok, pid} <-
-           GenRegistry.lookup(ArcaneVoice.Presence, payload.data["user"]["id"]) do
-      GenServer.cast(pid, {:sync, %{discord_presence: payload.data}})
-    end
-
-    {:ok, state}
-  end
-
-  def handle_event({:guild_member_add, payload}, state) do
-    Logger.debug("User #{payload.data["user"]["id"]} joined guild")
-
-    request_payload =
-      payload_build_json(opcode(opcodes(), :request_guild_members), %{
-        "guild_id" => payload.data["guild_id"],
-        "user_ids" => [payload.data["user"]["id"]],
-        "limit" => 1,
-        "presences" => true
-      })
-
-    :websocket_client.cast(self(), {:binary, request_payload})
-
-    {:ok, state}
-  end
-
-  def handle_event({:guild_member_update, payload}, state) do
-    Logger.debug("User object for #{payload.data["user"]["id"]} was updated")
-
-    with {:ok, pid} <-
-           GenRegistry.lookup(ArcaneVoice.Presence, payload.data["user"]["id"]) do
-      GenServer.cast(pid, {:sync, %{discord_user: payload.data["user"]}})
-    end
-
-    {:ok, state}
-  end
-
-  def handle_event({:guild_member_remove, payload}, state) do
-    Logger.debug("User #{payload.data["user"]["id"]} left guild")
-
-    str_id = payload.data["user"]["id"]
-
-    GenRegistry.stop(ArcaneVoice.Presence, str_id)
-    :ets.delete(:cached_presences, str_id)
-
-    {:ok, state}
-  end
-
-  def handle_event({:guild_members_chunk, payload}, state) do
-    create_member_presences(payload)
 
     {:ok, state}
   end
@@ -394,24 +336,5 @@ defmodule ArcaneVoice.Gateway.Client do
     if state[:agent_seq_num] && data.seq_num do
       agent_update(state[:agent_seq_num], data.seq_num)
     end
-  end
-
-  defp create_member_presences(payload) do
-    Task.start(fn ->
-      Enum.each(payload.data["members"], fn member ->
-        presence =
-          payload.data["presences"]
-          |> Enum.find(fn presence -> presence["user"]["id"] === member["user"]["id"] end)
-
-        gen_init = %{
-          user_id: member["user"]["id"],
-          discord_presence: presence,
-          discord_user: member["user"]
-        }
-
-        {:ok, pid} = GenRegistry.lookup_or_start(ArcaneVoice.Presence, gen_init.user_id, [gen_init])
-        GenServer.cast(pid, {:sync, gen_init})
-      end)
-    end)
   end
 end
