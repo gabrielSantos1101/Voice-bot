@@ -3,6 +3,39 @@ defmodule ArcaneVoice.DiscordBot.DiscordApi do
 
   @api_host "https://discord.com/api/v10"
 
+  def register_guild_commands(application_id, guild_id) do
+    url = "#{@api_host}/applications/#{application_id}/guilds/#{guild_id}/commands"
+
+    body = [
+      %{
+        "name" => "tts",
+        "description" => "Speak text in your current voice channel",
+        "type" => 1,
+        "options" => [
+          %{
+            "name" => "text",
+            "description" => "The text to speak",
+            "type" => 3,
+            "required" => true
+          }
+        ]
+      }
+    ]
+
+    case :put
+         |> Finch.build(url, headers(), Jason.encode!(body))
+         |> Finch.request(ArcaneVoice.Finch) do
+      {:ok, %{status: status}} when status in 200..299 ->
+        Logger.info("Guild slash commands registered (status #{status})")
+
+      {:ok, %{status: status, body: body}} ->
+        Logger.warning("Guild command registration failed (status #{status}): #{body}")
+
+      {:error, reason} ->
+        Logger.error("Guild command registration error: #{inspect(reason)}")
+    end
+  end
+
   def register_commands(application_id) do
     url = "#{@api_host}/applications/#{application_id}/commands"
 

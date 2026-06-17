@@ -8,7 +8,8 @@ defmodule ArcaneVoice.DiscordBot do
   defstruct token: nil,
             gateway_client_pid: nil,
             resume_data: nil,
-            user_id: nil
+            user_id: nil,
+            guild_id: nil
 
   def start_link(state) do
     GenServer.start_link(__MODULE__, state, name: :discord_bot)
@@ -50,12 +51,16 @@ defmodule ArcaneVoice.DiscordBot do
 
   def handle_info({:bot_ready, user_id}, state) do
     Logger.info("Voice bot ready with user_id: #{user_id}")
+    state = %{state | user_id: user_id}
+    maybe_register_commands(state)
+    {:noreply, state}
+  end
 
-    Task.start(fn ->
-      ArcaneVoice.DiscordBot.DiscordApi.register_commands(user_id)
-    end)
-
-    {:noreply, %{state | user_id: user_id}}
+  def handle_info({:guild_available, guild_id}, state) do
+    Logger.info("Voice bot guild available: #{guild_id}")
+    state = %{state | guild_id: guild_id}
+    maybe_register_commands(state)
+    {:noreply, state}
   end
 
   def handle_info({:voice_state_update, guild_id, channel_id, self_mute, self_deaf}, state) do
@@ -68,4 +73,13 @@ defmodule ArcaneVoice.DiscordBot do
 
     {:noreply, state, {:continue, :setup_bot}}
   end
+
+  defp maybe_register_commands(%{user_id: user_id, guild_id: guild_id})
+       when not is_nil(user_id) and not is_nil(guild_id) do
+    Task.start(fn ->
+      ArcaneVoice.DiscordBot.DiscordApi.register_guild_commands(user_id, guild_id)
+    end)
+  end
+
+  defp maybe_register_commands(_), do: :ok
 end

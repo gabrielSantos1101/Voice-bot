@@ -261,9 +261,11 @@ defmodule ArcaneVoice.Gateway.Client do
   end
 
   def handle_event({:guild_create, payload}, state) do
-    Logger.info("Guild available: #{payload.data["id"]}")
+    guild_id = payload.data["id"]
+    Logger.info("Guild available: #{guild_id}")
 
-    ArcaneVoice.TTS.bulk_voice_states(payload.data["id"], payload.data["voice_states"] || [])
+    ArcaneVoice.TTS.bulk_voice_states(guild_id, payload.data["voice_states"] || [])
+    send(:discord_bot, {:guild_available, guild_id})
 
     {:ok, state}
   end
