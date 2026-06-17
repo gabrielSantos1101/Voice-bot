@@ -1,15 +1,11 @@
 defmodule ArcaneVoice.Api.Router do
   import Plug.Conn
 
-  alias ArcaneVoice.Api.Routes.V1
   alias ArcaneVoice.Api.Routes.Discord
   alias ArcaneVoice.Api.Routes.Metrics
   alias ArcaneVoice.Api.Util
-  alias ArcaneVoice.Api.Quicklinks
 
   use Plug.Router
-
-  @supported_quicktypes ["png", "gif", "webp", "jpg", "jpeg"]
 
   plug(Corsica,
     origins: "*",
@@ -41,51 +37,16 @@ defmodule ArcaneVoice.Api.Router do
   end
 
   get "/" do
-    response = %{
-      info:
-        "ArcaneVoice provides Discord presences as an API and WebSocket. Find out more here: https://github.com/Phineas/arcane_voice",
-      monitored_user_count: GenRegistry.count(ArcaneVoice.Presence),
-      discord_invite: "https://discord.gg/arcane_voice"
-    }
-
-    Util.respond(conn, {:ok, response})
+    send_resp(conn, 200, "ArcaneVoice is running")
   end
 
-  get "/socket" do
-    %Plug.Conn{query_params: params} = fetch_query_params(conn)
-
-    try do
-      conn
-      |> WebSockAdapter.upgrade(ArcaneVoice.SocketHandler, params, timeout: 60_000)
-      |> halt()
-    rescue
-      WebSockAdapter.UpgradeError ->
-        conn
-        |> Util.respond({:error, 400, :upgrade_failed, "Request failed to upgrade"})
-        |> halt()
-
-      # i would image this is effectively useless as only the Upgrade could throw
-      other ->
-        reraise other, __STACKTRACE__
-    end
+  get "/health" do
+    send_resp(conn, 200, "ok")
   end
 
-  forward("/v1", to: V1)
   forward("/discord", to: Discord)
   forward("/metrics", to: Metrics)
   forward("/tts", to: ArcaneVoice.Api.Routes.TTS)
-
-  get _ do
-    quicktype = String.split(conn.request_path, ".") |> Enum.at(-1)
-
-    cond do
-      Enum.member?(@supported_quicktypes, quicktype) ->
-        Quicklinks.DiscordCdn.proxy_image(conn)
-
-      true ->
-        Util.not_found(conn)
-    end
-  end
 
   options _ do
     conn
