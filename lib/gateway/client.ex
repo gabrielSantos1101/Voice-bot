@@ -11,10 +11,7 @@ defmodule ArcaneVoice.Gateway.Client do
 
   @intents %{
     guilds: 1 <<< 0,
-    guild_voice_states: 1 <<< 7,
-    guild_messages: 1 <<< 9,
-    direct_messages: 1 <<< 12,
-    message_content: 1 <<< 15
+    guild_voice_states: 1 <<< 7
   }
 
   @intents_mask Enum.reduce(@intents, 0, fn {_k, bit}, acc -> acc ||| bit end)
@@ -64,13 +61,7 @@ defmodule ArcaneVoice.Gateway.Client do
   end
 
   def onconnect(_WSReq, state) do
-    if state[:session_id] && state[:resume_gateway_url] && state[:seq_num] do
-      Logger.info("Discord: Resuming session #{state[:session_id]}")
-      resume(state)
-    else
-      identify(state)
-    end
-
+    Logger.info("Discord: Connected, waiting for Hello")
     {:ok, state}
   end
 
@@ -117,8 +108,6 @@ defmodule ArcaneVoice.Gateway.Client do
   end
 
   defp _handle_data(%{op: :hello} = data, state) do
-    # Discord sends hello op immediately after connection
-    # Start sending heartbeat with interval defined by the hello packet
     Logger.debug("Discord: Hello")
 
     {:ok, heartbeat_pid} =
@@ -127,6 +116,13 @@ defmodule ArcaneVoice.Gateway.Client do
         data.data["heartbeat_interval"],
         self()
       )
+
+    if state[:session_id] && state[:resume_gateway_url] && state[:seq_num] do
+      Logger.info("Discord: Resuming session #{state[:session_id]}")
+      resume(state)
+    else
+      identify(state)
+    end
 
     {:ok, %{state | heartbeat_pid: heartbeat_pid}}
   end
