@@ -20,16 +20,32 @@ Converts text messages to spoken audio in Discord voice channels. Runs independe
 - Python 3.x with `edge-tts` (`pip install edge-tts`)
 - Discord Bot Token with `voice_states` and `guilds` intents
 
+## Quick start
+
+```bash
+# 1. Copy and fill in your env vars
+cp .env.example .env
+# Edit .env with your BOT_TOKEN
+
+# 2. Install dependencies
+mix deps.get
+
+# 3. Run
+mix run --no-halt
+```
+
 ## Configuration
 
-Set environment variables:
+Copy `.env.example` to `.env` and set the required variables:
 
 | Variable | Description |
 |---|---|
 | `BOT_TOKEN` | Discord bot token |
-| `HTTP_PORT` | HTTP server port (default: 4001) |
+| `PORT` | HTTP server port (default: 4001) |
+| `BOT_PRESENCE` | Bot status text (default: "voice") |
+| `BOT_PRESENCE_TYPE` | Status type 0-5 (default: 3 = listening) |
 
-Bot presence is set to "voice" by default (configurable via `BOT_PRESENCE` / `BOT_PRESENCE_TYPE`).
+Redis is optional and only needed for future features. Leave `REDIS_HOST` unset to skip.
 
 ## API
 

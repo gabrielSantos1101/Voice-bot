@@ -8,16 +8,23 @@ defmodule ArcaneVoice.Connectivity.Redis do
 
   def init(_) do
     uri =
-      if Application.get_env(:arcane_voice, :redis_uri) != nil,
-        do: Application.get_env(:arcane_voice, :redis_uri),
-        else: "redis://#{System.get_env("REDIS_HOST")}:6379"
+      Application.get_env(:arcane_voice, :redis_uri) ||
+        case System.get_env("REDIS_HOST") do
+          nil -> :skip
+          host -> "redis://#{host}:6379"
+        end
 
-    {:ok, client} = Redix.start_link(uri)
-    {:ok, conn} = Redix.PubSub.start_link(uri)
+    if uri == :skip do
+      Logger.warning("Redis: no REDIS_HOST set, skipping connection")
+      :ignore
+    else
+      {:ok, client} = Redix.start_link(uri)
+      {:ok, conn} = Redix.PubSub.start_link(uri)
 
-    Redix.PubSub.subscribe(conn, "arcane_voice:global_sync", self())
+      Redix.PubSub.subscribe(conn, "arcane_voice:global_sync", self())
 
-    {:ok, %{client: client}}
+      {:ok, %{client: client}}
+    end
   end
 
   def handle_info({:redix_pubsub, _pubsub, _pid, :subscribed, %{channel: channel}}, state) do
