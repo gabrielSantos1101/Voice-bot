@@ -50,6 +50,11 @@ defmodule ArcaneVoice.DiscordBot do
 
   def handle_info({:bot_ready, user_id}, state) do
     Logger.info("Voice bot ready with user_id: #{user_id}")
+
+    Task.start(fn ->
+      ArcaneVoice.DiscordBot.DiscordApi.register_commands(user_id)
+    end)
+
     {:noreply, %{state | user_id: user_id}}
   end
 

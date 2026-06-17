@@ -3,7 +3,7 @@ defmodule ArcaneVoice.TTS do
 
   require Logger
 
-  defstruct sessions: %{}, queues: %{}
+  defstruct sessions: %{}, queues: %{}, voice_states: %{}
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %__MODULE__{}, name: __MODULE__)
@@ -21,18 +21,46 @@ defmodule ArcaneVoice.TTS do
     GenServer.call(__MODULE__, {:speak, info}, 5000)
   end
 
+  def get_user_voice_channel(guild_id, user_id) do
+    GenServer.call(__MODULE__, {:get_user_voice_channel, guild_id, user_id})
+  end
+
+  def bulk_voice_states(guild_id, voice_states) do
+    GenServer.cast(__MODULE__, {:bulk_voice_states, guild_id, voice_states})
+  end
+
+  def handle_interaction(data) do
+    GenServer.cast(__MODULE__, {:handle_interaction, data})
+  end
+
   @impl true
   def init(state), do: {:ok, state}
 
   @impl true
   def handle_cast({:voice_state, data}, state) do
     guild_id = data["guild_id"]
+    user_id = data["user_id"]
+
+    state = cond do
+      data["channel_id"] == nil ->
+        # User left voice
+        guild_states = Map.get(state.voice_states, guild_id, %{})
+        put_in(state, [:voice_states, guild_id], Map.delete(guild_states, user_id))
+      true ->
+        put_in(state, [:voice_states, guild_id, user_id], data)
+    end
+
     Enum.each(state.sessions, fn {sguild_id, pid} ->
       if sguild_id == guild_id do
         send(pid, {:voice_state, data})
       end
     end)
     {:noreply, state}
+  end
+
+  def handle_cast({:bulk_voice_states, guild_id, voice_states}, state) do
+    indexed = Map.new(voice_states, fn vs -> {vs["user_id"], vs} end)
+    {:noreply, put_in(state, [:voice_states, guild_id], indexed)}
   end
 
   def handle_cast({:voice_server, data}, state) do
@@ -45,6 +73,21 @@ defmodule ArcaneVoice.TTS do
       end
     end)
     {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:handle_interaction, data}, state) do
+    new_state =
+      case data do
+        %{"type" => 2, "data" => %{"name" => "tts"} = cmd_data} ->
+          handle_tts_slash(data, cmd_data, state)
+
+        _ ->
+          Logger.debug("TTS: unknown interaction type=#{data["type"]}")
+          state
+      end
+
+    {:noreply, new_state}
   end
 
   @impl true
@@ -65,11 +108,75 @@ defmodule ArcaneVoice.TTS do
   end
 
   @impl true
+  def handle_call({:get_user_voice_channel, guild_id, user_id}, _from, state) do
+    channel_id = get_in(state, [:voice_states, guild_id, user_id, "channel_id"])
+    {:reply, channel_id, state}
+  end
+
+  @impl true
   def handle_call({:speak, info}, _from, state) do
     pid = start_session(info.guild_id, info)
     Process.monitor(pid)
     send(pid, {:tts_config, self(), info.guild_id})
     {:reply, :ok, %{state | sessions: Map.put(state.sessions, info.guild_id, pid)}}
+  end
+
+  defp handle_tts_slash(data, cmd_data, state) do
+    guild_id = data["guild_id"]
+    user_id = get_in(data, ["member", "user", "id"]) || data["user"]["id"]
+    text = get_text_option(cmd_data)
+
+    cond do
+      is_nil(text) ->
+        respond_interaction(data, %{
+          "type" => 4,
+          "data" => %{"content" => "You need to provide text to speak.", "flags" => 64}
+        })
+
+      true ->
+        channel_id = get_in(state, [:voice_states, guild_id, user_id, "channel_id"])
+
+        if is_nil(channel_id) do
+          respond_interaction(data, %{
+            "type" => 4,
+            "data" => %{"content" => "You need to be in a voice channel to use this command.", "flags" => 64}
+          })
+        else
+          respond_interaction(data, %{
+            "type" => 4,
+            "data" => %{"content" => "Speaking...", "flags" => 64}
+          })
+
+          pid = start_session(guild_id, %{voice_channel_id: channel_id, text: text})
+          Process.monitor(pid)
+          send(pid, {:tts_config, self(), guild_id})
+          put_in(state, [:sessions, guild_id], pid)
+        end
+    end
+  end
+
+  defp get_text_option(%{"options" => options}) do
+    Enum.find_value(options || [], fn
+      %{"name" => "text", "value" => value} -> value
+      _ -> nil
+    end)
+  end
+
+  defp get_text_option(_), do: nil
+
+  defp respond_interaction(data, body) do
+    interaction_id = data["id"]
+    token = data["token"]
+    url = "https://discord.com/api/v10/interactions/#{interaction_id}/#{token}/callback"
+
+    Task.start(fn ->
+      case :post
+           |> Finch.build(url, [{"Content-Type", "application/json"}], Jason.encode!(body))
+           |> Finch.request(ArcaneVoice.Finch) do
+        {:ok, _} -> :ok
+        {:error, reason} -> Logger.error("TTS: interaction response failed: #{inspect(reason)}")
+      end
+    end)
   end
 
   defp dequeue_next(state, guild_id) do

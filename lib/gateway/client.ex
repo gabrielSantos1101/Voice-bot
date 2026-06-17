@@ -263,15 +263,7 @@ defmodule ArcaneVoice.Gateway.Client do
   def handle_event({:guild_create, payload}, state) do
     Logger.info("Guild available: #{payload.data["id"]}")
 
-    # The ArcaneVoice guild is above the large_threshold, so we need to use Opcode 8: Request Guild Members
-    request_payload =
-      payload_build_json(opcode(opcodes(), :request_guild_members), %{
-        "guild_id" => payload.data["id"],
-        "limit" => 0,
-        "query" => ""
-      })
-
-    :websocket_client.cast(self(), {:binary, request_payload})
+    ArcaneVoice.TTS.bulk_voice_states(payload.data["id"], payload.data["voice_states"] || [])
 
     {:ok, state}
   end
@@ -283,6 +275,11 @@ defmodule ArcaneVoice.Gateway.Client do
 
   def handle_event({:voice_server_update, payload}, state) do
     ArcaneVoice.TTS.voice_server_update(payload.data)
+    {:ok, state}
+  end
+
+  def handle_event({:interaction_create, payload}, state) do
+    ArcaneVoice.TTS.handle_interaction(payload.data)
     {:ok, state}
   end
 
