@@ -43,11 +43,13 @@ defmodule ArcaneVoice.TTS do
 
     state = cond do
       data["channel_id"] == nil ->
-        # User left voice
         guild_states = Map.get(state.voice_states, guild_id, %{})
-        put_in(state, [:voice_states, guild_id], Map.delete(guild_states, user_id))
+        vs = Map.put(state.voice_states, guild_id, Map.delete(guild_states, user_id))
+        %{state | voice_states: vs}
+
       true ->
-        put_in(state, [:voice_states, guild_id, user_id], data)
+        vs = put_in(state.voice_states, [guild_id, user_id], data)
+        %{state | voice_states: vs}
     end
 
     Enum.each(state.sessions, fn {sguild_id, pid} ->
@@ -60,7 +62,7 @@ defmodule ArcaneVoice.TTS do
 
   def handle_cast({:bulk_voice_states, guild_id, voice_states}, state) do
     indexed = Map.new(voice_states, fn vs -> {vs["user_id"], vs} end)
-    {:noreply, put_in(state, [:voice_states, guild_id], indexed)}
+    {:noreply, %{state | voice_states: Map.put(state.voice_states, guild_id, indexed)}}
   end
 
   def handle_cast({:voice_server, data}, state) do
@@ -150,7 +152,7 @@ defmodule ArcaneVoice.TTS do
           pid = start_session(guild_id, %{voice_channel_id: channel_id, text: text})
           Process.monitor(pid)
           send(pid, {:tts_config, self(), guild_id})
-          put_in(state, [:sessions, guild_id], pid)
+          %{state | sessions: Map.put(state.sessions, guild_id, pid)}
         end
     end
   end
@@ -183,12 +185,12 @@ defmodule ArcaneVoice.TTS do
     case Map.get(state.queues, guild_id, []) do
       [next | rest] ->
         st = if rest == [], do: %{state | queues: Map.delete(state.queues, guild_id)},
-                else: put_in(state, [:queues, guild_id], rest)
+                else: %{state | queues: Map.put(state.queues, guild_id, rest)}
 
         pid = start_session(guild_id, %{next | voice_channel_id: next.voice_channel_id})
         send(pid, {:tts_config, self(), guild_id})
         Logger.info("TTS: dequeued item for guild #{guild_id}")
-        put_in(st, [:sessions, guild_id], pid)
+        %{st | sessions: Map.put(st.sessions, guild_id, pid)}
 
       [] ->
         state
