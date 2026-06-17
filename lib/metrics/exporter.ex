@@ -11,12 +11,6 @@ defmodule ArcaneVoice.Metrics.Exporter do
   def call(conn, _opts) do
     case conn.request_path do
       unquote(path) ->
-        ArcaneVoice.Metrics.Collector.set(
-          :gauge,
-          :arcane_voice_monitored_users,
-          GenRegistry.count(ArcaneVoice.Presence)
-        )
-
         {content_type, scrape} = scrape_data(conn)
 
         conn

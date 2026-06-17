@@ -26,20 +26,6 @@ defmodule ArcaneVoice.Metrics.Collector do
     )
 
     Counter.new(
-      name: :arcane_voice_presence_updates,
-      registry: @registry,
-      labels: [],
-      help: "Presence updates received count."
-    )
-
-    Gauge.new(
-      name: :arcane_voice_monitored_users,
-      registry: @registry,
-      labels: [],
-      help: "Users monitored by ArcaneVoice count."
-    )
-
-    Counter.new(
       name: :arcane_voice_2xx_responses,
       registry: @registry,
       labels: [],
