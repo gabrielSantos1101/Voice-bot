@@ -1,9 +1,9 @@
-defmodule Lanyard.Metrics do
+defmodule ArcaneVoice.Metrics do
   use Task, restart: :transient
 
   def start_link(_opts) do
     Task.start_link(fn ->
-      Lanyard.Metrics.Collector.start()
+      ArcaneVoice.Metrics.Collector.start()
       exit(:normal)
     end)
   end

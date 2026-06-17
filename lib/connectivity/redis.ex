@@ -1,5 +1,5 @@
-defmodule Lanyard.Connectivity.Redis do
-  alias Lanyard.Presence
+defmodule ArcaneVoice.Connectivity.Redis do
+  alias ArcaneVoice.Presence
   use GenServer
   require Logger
 
@@ -9,14 +9,14 @@ defmodule Lanyard.Connectivity.Redis do
 
   def init(_) do
     uri =
-      if Application.get_env(:lanyard, :redis_uri) != nil,
-        do: Application.get_env(:lanyard, :redis_uri),
+      if Application.get_env(:arcane_voice, :redis_uri) != nil,
+        do: Application.get_env(:arcane_voice, :redis_uri),
         else: "redis://#{System.get_env("REDIS_HOST")}:6379"
 
     {:ok, client} = Redix.start_link(uri)
     {:ok, conn} = Redix.PubSub.start_link(uri)
 
-    Redix.PubSub.subscribe(conn, "lanyard:global_sync", self())
+    Redix.PubSub.subscribe(conn, "arcane_voice:global_sync", self())
 
     {:ok, %{client: client}}
   end
@@ -28,7 +28,7 @@ defmodule Lanyard.Connectivity.Redis do
 
   def handle_info(
         {:redix_pubsub, _pubsub, _pid, :message,
-         %{channel: "lanyard:global_sync", payload: payload}},
+         %{channel: "arcane_voice:global_sync", payload: payload}},
         state
       ) do
     node_id = :erlang.phash2(node())

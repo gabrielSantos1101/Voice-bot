@@ -1,6 +1,6 @@
-defmodule Lanyard.Api.Routes.V1 do
-  alias Lanyard.Api.Util
-  alias Lanyard.Api.Routes.V1.Users
+defmodule ArcaneVoice.Api.Routes.V1 do
+  alias ArcaneVoice.Api.Util
+  alias ArcaneVoice.Api.Routes.V1.Users
 
   use Plug.Router
 

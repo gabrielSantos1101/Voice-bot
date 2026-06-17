@@ -1,9 +1,9 @@
-defmodule Lanyard.Presence.PublicFields do
+defmodule ArcaneVoice.Presence.PublicFields do
   @derive Jason.Encoder
   defstruct [:user_id, :discord_user, :discord_presence, :kv]
 end
 
-defmodule Lanyard.Presence.PrettyPresence do
+defmodule ArcaneVoice.Presence.PrettyPresence do
   @derive Jason.Encoder
   defstruct discord_user: %{},
             discord_status: "offline",
@@ -18,12 +18,12 @@ defmodule Lanyard.Presence.PrettyPresence do
             kv: %{}
 end
 
-defmodule Lanyard.Presence do
+defmodule ArcaneVoice.Presence do
   use GenServer
 
-  alias Lanyard.Connectivity.Redis
-  alias Lanyard.Presence.Spotify
-  alias Lanyard.Presence.Activity
+  alias ArcaneVoice.Connectivity.Redis
+  alias ArcaneVoice.Presence.Spotify
+  alias ArcaneVoice.Presence.Activity
   require Logger
 
   @derive Jason.Encoder
@@ -39,7 +39,7 @@ defmodule Lanyard.Presence do
   end
 
   def init(state) do
-    kv = Lanyard.Connectivity.Redis.hgetall("lanyard_kv:#{state.user_id}")
+    kv = ArcaneVoice.Connectivity.Redis.hgetall("arcane_voice_kv:#{state.user_id}")
 
     {:ok, pretty_presence} =
       state
@@ -47,7 +47,7 @@ defmodule Lanyard.Presence do
       |> get_public_fields()
       |> build_pretty_presence()
 
-    subscriber_pids = Lanyard.SocketHandler.get_global_subscriber_list()
+    subscriber_pids = ArcaneVoice.SocketHandler.get_global_subscriber_list()
 
     Manifold.send(
       subscriber_pids,
@@ -135,9 +135,9 @@ defmodule Lanyard.Presence do
     {:noreply, Map.merge(state, normalized_new_state)}
   end
 
-  @spec get_public_fields(map()) :: %Lanyard.Presence.PublicFields{}
+  @spec get_public_fields(map()) :: %ArcaneVoice.Presence.PublicFields{}
   defp get_public_fields(state) do
-    %Lanyard.Presence.PublicFields{
+    %ArcaneVoice.Presence.PublicFields{
       user_id: state.user_id,
       discord_user: state.discord_user,
       discord_presence: state.discord_presence,
@@ -150,20 +150,20 @@ defmodule Lanyard.Presence do
   #
 
   @spec get_presence(number) ::
-          {:ok, Lanyard.Presence.PrettyPresence} | {:error, atom, binary}
+          {:ok, ArcaneVoice.Presence.PrettyPresence} | {:error, atom, binary}
   def get_presence(user_id) when is_number(user_id) do
     get_presence(Integer.to_string(user_id))
   end
 
   @spec get_presence(binary) ::
-          {:ok, Lanyard.Presence.PrettyPresence} | {:error, atom, binary}
+          {:ok, ArcaneVoice.Presence.PrettyPresence} | {:error, atom, binary}
   def get_presence(user_id) when is_binary(user_id) do
     case GenRegistry.lookup(__MODULE__, user_id) do
       {:ok, pid} ->
         {:ok, GenServer.call(pid, {:get_raw_data})}
 
       {:error, _reason} ->
-        {:error, :user_not_monitored, "User is not being monitored by Lanyard"}
+        {:error, :user_not_monitored, "User is not being monitored by ArcaneVoice"}
     end
   end
 
@@ -194,14 +194,14 @@ defmodule Lanyard.Presence do
     spotify_activity =
       activities
       |> Enum.find(fn activity ->
-        activity["id"] == Application.get_env(:lanyard, :discord_spotify_activity_id)
+        activity["id"] == Application.get_env(:arcane_voice, :discord_spotify_activity_id)
       end)
 
     has_presence? = raw_data.discord_presence !== nil
 
     pretty_fields =
       if has_presence? do
-        %Lanyard.Presence.PrettyPresence{
+        %ArcaneVoice.Presence.PrettyPresence{
           discord_user: raw_data.discord_user,
           discord_status: raw_data.discord_presence["status"],
           active_on_discord_web: Map.has_key?(raw_data.discord_presence["client_status"], "web"),
@@ -218,7 +218,7 @@ defmodule Lanyard.Presence do
           kv: raw_data.kv
         }
       else
-        %Lanyard.Presence.PrettyPresence{
+        %ArcaneVoice.Presence.PrettyPresence{
           discord_user: raw_data.discord_user,
           kv: raw_data.kv
         }
@@ -262,7 +262,7 @@ defmodule Lanyard.Presence do
             |> Map.put(:user_id, user_id)
             |> Map.put(:diff, payload)
 
-          Redis.publish("lanyard:global_sync", Jason.encode!(global_sync_payload))
+          Redis.publish("arcane_voice:global_sync", Jason.encode!(global_sync_payload))
         end)
       end
     end

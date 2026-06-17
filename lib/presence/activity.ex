@@ -1,4 +1,4 @@
-defmodule Lanyard.Presence.Activity do
+defmodule ArcaneVoice.Presence.Activity do
   def build_pretty_activities(activities) do
     activities
     |> Enum.map(fn activity ->

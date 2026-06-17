@@ -1,5 +1,5 @@
-defmodule Lanyard.Api.Routes.Discord do
-  alias Lanyard.Api.Util
+defmodule ArcaneVoice.Api.Routes.Discord do
+  alias ArcaneVoice.Api.Util
 
   use Plug.Router
   plug(:match)

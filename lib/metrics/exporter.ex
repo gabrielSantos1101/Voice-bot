@@ -1,9 +1,9 @@
-defmodule Lanyard.Metrics.Exporter do
+defmodule ArcaneVoice.Metrics.Exporter do
   @behaviour Plug
   import Plug.Conn
 
   path = "/metrics"
-  registry = :lanyard_registry
+  registry = :arcane_voice_registry
 
   def init(_opts) do
   end
@@ -11,10 +11,10 @@ defmodule Lanyard.Metrics.Exporter do
   def call(conn, _opts) do
     case conn.request_path do
       unquote(path) ->
-        Lanyard.Metrics.Collector.set(
+        ArcaneVoice.Metrics.Collector.set(
           :gauge,
-          :lanyard_monitored_users,
-          GenRegistry.count(Lanyard.Presence)
+          :arcane_voice_monitored_users,
+          GenRegistry.count(ArcaneVoice.Presence)
         )
 
         {content_type, scrape} = scrape_data(conn)

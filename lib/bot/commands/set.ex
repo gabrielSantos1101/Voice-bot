@@ -1,6 +1,6 @@
-defmodule Lanyard.DiscordBot.Commands.Set do
-  alias Lanyard.DiscordBot.DiscordApi
-  alias Lanyard.DiscordBot.Commands.ApiKey
+defmodule ArcaneVoice.DiscordBot.Commands.Set do
+  alias ArcaneVoice.DiscordBot.DiscordApi
+  alias ArcaneVoice.DiscordBot.Commands.ApiKey
 
   def handle([key | value_s], payload) when length(value_s) > 0 do
     value = Enum.join(value_s, " ")
@@ -15,7 +15,7 @@ defmodule Lanyard.DiscordBot.Commands.Set do
         ApiKey.generate_and_send_new(payload["author"]["id"])
 
       {false} ->
-        case Lanyard.KV.Interface.set(payload["author"]["id"], key, value) do
+        case ArcaneVoice.KV.Interface.set(payload["author"]["id"], key, value) do
           {:error, reason} ->
             DiscordApi.send_message(
               payload["channel_id"],
@@ -25,7 +25,7 @@ defmodule Lanyard.DiscordBot.Commands.Set do
           _ ->
             DiscordApi.send_message(
               payload["channel_id"],
-              ":white_check_mark: `#{key}` was set. View it with `#{Application.get_env(:lanyard, :command_prefix)}get #{key}` or go to #{Application.get_env(:lanyard, :external_url)}/v1/users/#{payload["author"]["id"]}"
+              ":white_check_mark: `#{key}` was set. View it with `#{Application.get_env(:arcane_voice, :command_prefix)}get #{key}` or go to #{Application.get_env(:arcane_voice, :external_url)}/v1/users/#{payload["author"]["id"]}"
             )
         end
     end
@@ -46,7 +46,7 @@ defmodule Lanyard.DiscordBot.Commands.Set do
       [{false}] ->
         DiscordApi.send_message(
           payload["channel_id"],
-          "Invalid usage. Example `set` command usage:\n`#{Application.get_env(:lanyard, :command_prefix)}set <key> <value>`"
+          "Invalid usage. Example `set` command usage:\n`#{Application.get_env(:arcane_voice, :command_prefix)}set <key> <value>`"
         )
 
       _ ->

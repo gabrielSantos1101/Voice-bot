@@ -1,6 +1,6 @@
 import Config
 
-config :lanyard,
+config :arcane_voice,
   http_port: String.to_integer(System.get_env("PORT") || "4001"),
   discord_spotify_activity_id: "spotify:1",
   command_prefix: System.get_env("COMMAND_PREFIX") || ".",

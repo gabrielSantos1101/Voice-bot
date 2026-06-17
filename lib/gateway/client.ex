@@ -1,17 +1,18 @@
-defmodule Lanyard.Gateway.Client do
+defmodule ArcaneVoice.Gateway.Client do
   # a lot of functionality here is taken from: https://github.com/rmcafee/discord_ex/blob/master/lib/discord_ex/client/client.ex
   require Logger
 
-  alias Lanyard.Gateway.Heartbeat
+  alias ArcaneVoice.Gateway.Heartbeat
 
   import Bitwise
-  import Lanyard.Gateway.Utility
+  import ArcaneVoice.Gateway.Utility
 
   @behaviour :websocket_client
 
   @intents %{
     guilds: 1 <<< 0,
     guild_members: 1 <<< 1,
+    guild_voice_states: 1 <<< 7,
     guild_presences: 1 <<< 8,
     guild_messages: 1 <<< 9,
     direct_messages: 1 <<< 12,
@@ -205,6 +206,17 @@ defmodule Lanyard.Gateway.Client do
     {:ok, state}
   end
 
+  def websocket_info({:send_voice_state, guild_id, channel_id, self_mute, self_deaf}, _connection, state) do
+    payload = payload_build_json(opcode(opcodes(), :voice_state_update), %{
+      "guild_id" => guild_id,
+      "channel_id" => channel_id,
+      "self_mute" => self_mute,
+      "self_deaf" => self_deaf
+    })
+    :websocket_client.cast(self(), {:binary, payload})
+    {:ok, state}
+  end
+
   def websocket_info(:heartbeat_stale, _connection, state) do
     Logger.warning("Discord: Heartbeat stale, will resume session")
 
@@ -231,20 +243,23 @@ defmodule Lanyard.Gateway.Client do
   end
 
   def handle_event({:ready, payload}, state) do
+    user_id = get_in(payload.data, ["user", "id"])
     new_state =
       state
       |> Map.put(:session_id, payload.data["session_id"])
       |> Map.put(:resume_gateway_url, payload.data["resume_gateway_url"])
+      |> Map.put(:user_id, user_id)
 
+    send(:discord_bot, {:bot_ready, user_id})
     Logger.info("Discord: Ready")
 
     {:ok, new_state}
   end
 
   def handle_event({:message_create, payload}, state) do
-    if Application.get_env(:lanyard, :is_idempotent) do
+    if Application.get_env(:arcane_voice, :is_idempotent) do
       Task.start(fn ->
-        Lanyard.DiscordBot.CommandHandler.handle_message(payload)
+        ArcaneVoice.DiscordBot.CommandHandler.handle_message(payload)
       end)
     end
 
@@ -254,7 +269,7 @@ defmodule Lanyard.Gateway.Client do
   def handle_event({:guild_create, payload}, state) do
     create_member_presences(payload)
 
-    # The Lanyard guild is above the large_threshold, so we need to use Opcode 8: Request Guild Members
+    # The ArcaneVoice guild is above the large_threshold, so we need to use Opcode 8: Request Guild Members
     request_payload =
       payload_build_json(opcode(opcodes(), :request_guild_members), %{
         "guild_id" => payload.data["id"],
@@ -269,10 +284,10 @@ defmodule Lanyard.Gateway.Client do
   end
 
   def handle_event({:presence_update, payload}, state) do
-    Lanyard.Metrics.Collector.inc(:counter, :lanyard_presence_updates)
+    ArcaneVoice.Metrics.Collector.inc(:counter, :arcane_voice_presence_updates)
 
     with {:ok, pid} <-
-           GenRegistry.lookup(Lanyard.Presence, payload.data["user"]["id"]) do
+           GenRegistry.lookup(ArcaneVoice.Presence, payload.data["user"]["id"]) do
       GenServer.cast(pid, {:sync, %{discord_presence: payload.data}})
     end
 
@@ -299,7 +314,7 @@ defmodule Lanyard.Gateway.Client do
     Logger.debug("User object for #{payload.data["user"]["id"]} was updated")
 
     with {:ok, pid} <-
-           GenRegistry.lookup(Lanyard.Presence, payload.data["user"]["id"]) do
+           GenRegistry.lookup(ArcaneVoice.Presence, payload.data["user"]["id"]) do
       GenServer.cast(pid, {:sync, %{discord_user: payload.data["user"]}})
     end
 
@@ -311,7 +326,7 @@ defmodule Lanyard.Gateway.Client do
 
     str_id = payload.data["user"]["id"]
 
-    GenRegistry.stop(Lanyard.Presence, str_id)
+    GenRegistry.stop(ArcaneVoice.Presence, str_id)
     :ets.delete(:cached_presences, str_id)
 
     {:ok, state}
@@ -320,6 +335,16 @@ defmodule Lanyard.Gateway.Client do
   def handle_event({:guild_members_chunk, payload}, state) do
     create_member_presences(payload)
 
+    {:ok, state}
+  end
+
+  def handle_event({:voice_state_update, payload}, state) do
+    ArcaneVoice.TTS.voice_state_update(payload.data)
+    {:ok, state}
+  end
+
+  def handle_event({:voice_server_update, payload}, state) do
+    ArcaneVoice.TTS.voice_server_update(payload.data)
     {:ok, state}
   end
 
@@ -343,16 +368,16 @@ defmodule Lanyard.Gateway.Client do
       "token" => state.token,
       "properties" => %{
         "$os" => "erlang-vm",
-        "$browser" => "lanyard-worker",
-        "$device" => "lanyard-genserver",
+        "$browser" => "arcane_voice-worker",
+        "$device" => "arcane_voice-genserver",
         "$referrer" => "",
         "$referring_domain" => ""
       },
       "presence" => %{
         "since" => nil,
         "game" => %{
-          "name" => Application.get_env(:lanyard, :bot_presence),
-          "type" => Application.get_env(:lanyard, :bot_presence_type)
+          "name" => Application.get_env(:arcane_voice, :bot_presence),
+          "type" => Application.get_env(:arcane_voice, :bot_presence_type)
         },
         "status" => "online"
       },
@@ -384,7 +409,7 @@ defmodule Lanyard.Gateway.Client do
           discord_user: member["user"]
         }
 
-        {:ok, pid} = GenRegistry.lookup_or_start(Lanyard.Presence, gen_init.user_id, [gen_init])
+        {:ok, pid} = GenRegistry.lookup_or_start(ArcaneVoice.Presence, gen_init.user_id, [gen_init])
         GenServer.cast(pid, {:sync, gen_init})
       end)
     end)

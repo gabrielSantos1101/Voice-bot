@@ -1,6 +1,6 @@
-defmodule Lanyard.DiscordBot.Commands.Del do
-  alias Lanyard.DiscordBot.DiscordApi
-  alias Lanyard.DiscordBot.Commands.ApiKey
+defmodule ArcaneVoice.DiscordBot.Commands.Del do
+  alias ArcaneVoice.DiscordBot.DiscordApi
+  alias ArcaneVoice.DiscordBot.Commands.ApiKey
 
   def handle([key], payload) do
     case ApiKey.validate_api_key(payload["author"]["id"], key) do
@@ -13,7 +13,7 @@ defmodule Lanyard.DiscordBot.Commands.Del do
         ApiKey.generate_and_send_new(payload["author"]["id"])
 
       {false} ->
-        Lanyard.KV.Interface.del(payload["author"]["id"], key)
+        ArcaneVoice.KV.Interface.del(payload["author"]["id"], key)
 
         DiscordApi.send_message(payload["channel_id"], ":white_check_mark: Deleted key: `#{key}`")
     end
@@ -32,7 +32,7 @@ defmodule Lanyard.DiscordBot.Commands.Del do
       [{false}] ->
         DiscordApi.send_message(
           payload["channel_id"],
-          "Invalid usage. Example `del` command usage:\n#{Application.get_env(:lanyard, :command_prefix)}del <key>`"
+          "Invalid usage. Example `del` command usage:\n#{Application.get_env(:arcane_voice, :command_prefix)}del <key>`"
         )
 
       _ ->

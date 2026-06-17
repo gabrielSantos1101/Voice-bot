@@ -1,13 +1,14 @@
-defmodule Lanyard.DiscordBot do
+defmodule ArcaneVoice.DiscordBot do
   use GenServer
 
   require Logger
 
-  alias Lanyard.Gateway
+  alias ArcaneVoice.Gateway
 
   defstruct token: nil,
             gateway_client_pid: nil,
-            resume_data: nil
+            resume_data: nil,
+            user_id: nil
 
   def start_link(state) do
     GenServer.start_link(__MODULE__, state, name: :discord_bot)
@@ -40,6 +41,21 @@ defmodule Lanyard.DiscordBot do
 
   def handle_info(:clear_resume, state) do
     {:noreply, %{state | resume_data: nil}}
+  end
+
+  def handle_info({:get_bot_user_id, from}, state) do
+    send(from, {:bot_user_id, state.user_id})
+    {:noreply, state}
+  end
+
+  def handle_info({:bot_ready, user_id}, state) do
+    Logger.info("Voice bot ready with user_id: #{user_id}")
+    {:noreply, %{state | user_id: user_id}}
+  end
+
+  def handle_info({:voice_state_update, guild_id, channel_id, self_mute, self_deaf}, state) do
+    send(state.gateway_client_pid, {:send_voice_state, guild_id, channel_id, self_mute, self_deaf})
+    {:noreply, state}
   end
 
   def handle_info({:DOWN, _ref, :process, _pid, reason}, state) do

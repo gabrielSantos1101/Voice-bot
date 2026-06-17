@@ -1,6 +1,6 @@
-defmodule Lanyard.KV.Interface do
-  alias Lanyard.Connectivity.Redis
-  alias Lanyard.Presence
+defmodule ArcaneVoice.KV.Interface do
+  alias ArcaneVoice.Connectivity.Redis
+  alias ArcaneVoice.Presence
 
   def get_all(user_id) do
     {:ok, %{kv: kv}} = Presence.get_presence(user_id)
@@ -30,7 +30,7 @@ defmodule Lanyard.KV.Interface do
             err
 
           {:ok} ->
-            Redis.hset("lanyard_kv:#{user_id}", key, value)
+            Redis.hset("arcane_voice_kv:#{user_id}", key, value)
             Presence.sync(user_id, %{kv: Map.put(kv, key, value)})
             {:ok, value}
         end
@@ -38,14 +38,14 @@ defmodule Lanyard.KV.Interface do
   end
 
   def multiset(user_id, map) when is_map(map) do
-    Redis.hset("lanyard_kv:#{user_id}", map_to_list(map))
+    Redis.hset("arcane_voice_kv:#{user_id}", map_to_list(map))
 
     full_kv = get_all(user_id)
     Presence.sync(user_id, %{kv: Map.merge(full_kv, map)})
   end
 
   def del(user_id, key) do
-    Redis.hdel("lanyard_kv:#{user_id}", key)
+    Redis.hdel("arcane_voice_kv:#{user_id}", key)
 
     kv = get_all(user_id)
     Presence.sync(user_id, %{kv: Map.delete(kv, key)})

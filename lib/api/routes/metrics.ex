@@ -1,7 +1,7 @@
-defmodule Lanyard.Api.Routes.Metrics do
+defmodule ArcaneVoice.Api.Routes.Metrics do
   use Plug.Router
 
-  plug(Lanyard.Metrics.Exporter)
+  plug(ArcaneVoice.Metrics.Exporter)
 
   plug(:match)
   plug(:dispatch)

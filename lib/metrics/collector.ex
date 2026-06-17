@@ -1,67 +1,67 @@
-defmodule Lanyard.Metrics.Collector do
+defmodule ArcaneVoice.Metrics.Collector do
   use Prometheus.Metric
 
-  @registry :lanyard_registry
+  @registry :arcane_voice_registry
 
   def start do
     Gauge.new(
-      name: :lanyard_connected_sessions,
+      name: :arcane_voice_connected_sessions,
       registry: @registry,
       labels: [],
       help: "Currently connected sessions count."
     )
 
     Counter.new(
-      name: :lanyard_messages_outbound,
+      name: :arcane_voice_messages_outbound,
       registry: @registry,
       labels: [],
       help: "Total socket messages outbout."
     )
 
     Counter.new(
-      name: :lanyard_messages_inbound,
+      name: :arcane_voice_messages_inbound,
       registry: @registry,
       labels: [],
       help: "Total messages received count."
     )
 
     Counter.new(
-      name: :lanyard_presence_updates,
+      name: :arcane_voice_presence_updates,
       registry: @registry,
       labels: [],
       help: "Presence updates received count."
     )
 
     Gauge.new(
-      name: :lanyard_monitored_users,
+      name: :arcane_voice_monitored_users,
       registry: @registry,
       labels: [],
-      help: "Users monitored by Lanyard count."
+      help: "Users monitored by ArcaneVoice count."
     )
 
     Counter.new(
-      name: :lanyard_2xx_responses,
+      name: :arcane_voice_2xx_responses,
       registry: @registry,
       labels: [],
       help: "2xx http responses"
     )
 
     Counter.new(
-      name: :lanyard_4xx_responses,
+      name: :arcane_voice_4xx_responses,
       registry: @registry,
       labels: [],
       help: "4xx http responses"
     )
 
     Counter.new(
-      name: :lanyard_5xx_responses,
+      name: :arcane_voice_5xx_responses,
       registry: @registry,
       labels: [],
       help: "5xx http responses"
     )
 
     Counter.new(
-      name: :lanyard_discord_messages_sent,
+      name: :arcane_voice_discord_messages_sent,
       registry: @registry,
       labels: [],
       help: "Messages sent to discord count"

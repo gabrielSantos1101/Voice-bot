@@ -1,11 +1,11 @@
-defmodule Lanyard.DiscordBot.CommandHandler do
+defmodule ArcaneVoice.DiscordBot.CommandHandler do
   @command_map %{
-    "get" => Lanyard.DiscordBot.Commands.Get,
-    "set" => Lanyard.DiscordBot.Commands.Set,
-    "del" => Lanyard.DiscordBot.Commands.Del,
-    "apikey" => Lanyard.DiscordBot.Commands.ApiKey,
-    "kv" => Lanyard.DiscordBot.Commands.KV,
-    "help" => Lanyard.DiscordBot.Commands.KV
+    "get" => ArcaneVoice.DiscordBot.Commands.Get,
+    "set" => ArcaneVoice.DiscordBot.Commands.Set,
+    "del" => ArcaneVoice.DiscordBot.Commands.Del,
+    "apikey" => ArcaneVoice.DiscordBot.Commands.ApiKey,
+    "kv" => ArcaneVoice.DiscordBot.Commands.KV,
+    "help" => ArcaneVoice.DiscordBot.Commands.KV
   }
 
   def handle_message(payload) do
@@ -15,7 +15,7 @@ defmodule Lanyard.DiscordBot.CommandHandler do
         :ok
 
       %{"content" => content} ->
-        if String.starts_with?(content, Application.get_env(:lanyard, :command_prefix)) do
+        if String.starts_with?(content, Application.get_env(:arcane_voice, :command_prefix)) do
           [attempted_command | args] =
             content
             |> String.to_charlist()

@@ -1,6 +1,6 @@
-defmodule Lanyard.DiscordBot.Commands.ApiKey do
-  alias Lanyard.Connectivity.Redis
-  alias Lanyard.DiscordBot.DiscordApi
+defmodule ArcaneVoice.DiscordBot.Commands.ApiKey do
+  alias ArcaneVoice.Connectivity.Redis
+  alias ArcaneVoice.DiscordBot.DiscordApi
 
   def handle(_, %{"channel_id" => channel_id, "guild_id" => _guild_id} = _p) do
     DiscordApi.send_message(channel_id, ":x: You can only perform this command in DMs with me")
@@ -19,10 +19,10 @@ defmodule Lanyard.DiscordBot.Commands.ApiKey do
     Redis.set("api_key:#{key}", user_id)
     Redis.set("user_api_key:#{user_id}", key)
 
-    Lanyard.DiscordBot.DiscordApi.send_message(payload["channel_id"], %{
-      title: "Lanyard API Key",
+    ArcaneVoice.DiscordBot.DiscordApi.send_message(payload["channel_id"], %{
+      title: "ArcaneVoice API Key",
       description:
-        "**Absolutely do not share or post this key anywhere, it is a secret key that will allow anyone to manage your Lanyard K/V**\n\n**This key is not to be used in a front-end application/website**\n\nIf you are looking for the public endpoint for your data, you would use your discord user ID like so\n#{Application.get_env(:lanyard, :external_url)}/v1/users/#{user_id}",
+        "**Absolutely do not share or post this key anywhere, it is a secret key that will allow anyone to manage your ArcaneVoice K/V**\n\n**This key is not to be used in a front-end application/website**\n\nIf you are looking for the public endpoint for your data, you would use your discord user ID like so\n#{Application.get_env(:arcane_voice, :external_url)}/v1/users/#{user_id}",
       color: 0x5865F2,
       footer: %{text: "Run this command again if you need to re-generate your key"},
       fields: [
@@ -68,7 +68,7 @@ defmodule Lanyard.DiscordBot.Commands.ApiKey do
 
     DiscordApi.send_message(
       dm_channel,
-      ":repeat: **We've regenerated your api key as you used it in a K/V command.**\nYour new Lanyard API key is `#{key}`\n\n**ABSOLUTELY DO NOT SHARE OR POST THIS KEY ANYWHERE IT WILL ALLOW ANYONE TO MANAGE YOUR LANYARD K/V**\n*Run `.apikey` in this DM if you need to re-generate your key*"
+      ":repeat: **We've regenerated your api key as you used it in a K/V command.**\nYour new ArcaneVoice API key is `#{key}`\n\n**ABSOLUTELY DO NOT SHARE OR POST THIS KEY ANYWHERE IT WILL ALLOW ANYONE TO MANAGE YOUR ARCANEVOICE K/V**\n*Run `.apikey` in this DM if you need to re-generate your key*"
     )
   end
 

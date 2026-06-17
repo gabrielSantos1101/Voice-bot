@@ -1,4 +1,4 @@
-defmodule Lanyard.Gateway.Utility do
+defmodule ArcaneVoice.Gateway.Utility do
   @spec normalize_atom(atom) :: atom()
   def normalize_atom(atom) do
     atom |> Atom.to_string() |> String.downcase() |> String.to_atom()

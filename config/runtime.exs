@@ -1,7 +1,7 @@
 import Config
 
 if config_env() == :prod do
-  config :lanyard,
+  config :arcane_voice,
     http_port: String.to_integer(System.get_env("PORT") || "4001"),
     discord_spotify_activity_id: "spotify:1",
     command_prefix: System.get_env("COMMAND_PREFIX") || ".",
@@ -10,6 +10,8 @@ if config_env() == :prod do
     bot_token: System.get_env("BOT_TOKEN"),
     redis_uri:
       System.get_env("REDIS_DSN") || System.get_env("REDIS_URI") || System.get_env("REDIS_URL"),
-    is_idempotent: Lanyard.is_idempotent?(),
-    external_url: System.get_env("EXTERNAL_URL") || "https://api.lanyard.rest"
+    is_idempotent: ArcaneVoice.is_idempotent?(),
+    external_url: System.get_env("EXTERNAL_URL") || "https://api.arcanevoice.rest",
+    tts_provider: String.to_atom(System.get_env("TTS_PROVIDER") || "edge"),
+    tts_voice: System.get_env("TTS_VOICE")
 end

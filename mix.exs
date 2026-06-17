@@ -1,9 +1,9 @@
-defmodule Lanyard.MixProject do
+defmodule ArcaneVoice.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :lanyard,
+      app: :arcane_voice,
       version: "0.1.0",
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
@@ -15,7 +15,7 @@ defmodule Lanyard.MixProject do
   def application do
     [
       extra_applications: [:logger, :corsica],
-      mod: {Lanyard, []}
+      mod: {ArcaneVoice, []}
     ]
   end
 

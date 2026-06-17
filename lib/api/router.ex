@@ -1,11 +1,11 @@
-defmodule Lanyard.Api.Router do
+defmodule ArcaneVoice.Api.Router do
   import Plug.Conn
 
-  alias Lanyard.Api.Routes.V1
-  alias Lanyard.Api.Routes.Discord
-  alias Lanyard.Api.Routes.Metrics
-  alias Lanyard.Api.Util
-  alias Lanyard.Api.Quicklinks
+  alias ArcaneVoice.Api.Routes.V1
+  alias ArcaneVoice.Api.Routes.Discord
+  alias ArcaneVoice.Api.Routes.Metrics
+  alias ArcaneVoice.Api.Util
+  alias ArcaneVoice.Api.Quicklinks
 
   use Plug.Router
 
@@ -26,16 +26,16 @@ defmodule Lanyard.Api.Router do
     stat =
       cond do
         conn.status >= 200 && conn.status < 300 ->
-          :lanyard_2xx_responses
+          :arcane_voice_2xx_responses
 
         conn.status >= 400 && conn.status < 500 ->
-          :lanyard_4xx_responses
+          :arcane_voice_4xx_responses
 
         conn.status >= 500 ->
-          :lanyard_5xx_responses
+          :arcane_voice_5xx_responses
       end
 
-    Lanyard.Metrics.Collector.inc(:counter, stat)
+    ArcaneVoice.Metrics.Collector.inc(:counter, stat)
 
     conn
   end
@@ -43,9 +43,9 @@ defmodule Lanyard.Api.Router do
   get "/" do
     response = %{
       info:
-        "Lanyard provides Discord presences as an API and WebSocket. Find out more here: https://github.com/Phineas/lanyard",
-      monitored_user_count: GenRegistry.count(Lanyard.Presence),
-      discord_invite: "https://discord.gg/lanyard"
+        "ArcaneVoice provides Discord presences as an API and WebSocket. Find out more here: https://github.com/Phineas/arcane_voice",
+      monitored_user_count: GenRegistry.count(ArcaneVoice.Presence),
+      discord_invite: "https://discord.gg/arcane_voice"
     }
 
     Util.respond(conn, {:ok, response})
@@ -56,7 +56,7 @@ defmodule Lanyard.Api.Router do
 
     try do
       conn
-      |> WebSockAdapter.upgrade(Lanyard.SocketHandler, params, timeout: 60_000)
+      |> WebSockAdapter.upgrade(ArcaneVoice.SocketHandler, params, timeout: 60_000)
       |> halt()
     rescue
       WebSockAdapter.UpgradeError ->
@@ -73,6 +73,7 @@ defmodule Lanyard.Api.Router do
   forward("/v1", to: V1)
   forward("/discord", to: Discord)
   forward("/metrics", to: Metrics)
+  forward("/tts", to: ArcaneVoice.Api.Routes.TTS)
 
   get _ do
     quicktype = String.split(conn.request_path, ".") |> Enum.at(-1)

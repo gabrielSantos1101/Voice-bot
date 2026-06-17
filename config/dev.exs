@@ -1,6 +1,6 @@
 import Config
 
-config :lanyard,
+config :arcane_voice,
   http_port: String.to_integer(System.get_env("PORT") || "4001"),
   discord_spotify_activity_id: "spotify:1",
   command_prefix: System.get_env("COMMAND_PREFIX") || ".",
@@ -10,4 +10,6 @@ config :lanyard,
   redis_uri:
     System.get_env("REDIS_DSN") || System.get_env("REDIS_URI") || System.get_env("REDIS_URL"),
   is_idempotent: System.get_env("IS_IDEMPOTENT") == "true" || false,
-  external_url: System.get_env("EXTERNAL_URL") || "http://127.0.0.1:4001"
+  external_url: System.get_env("EXTERNAL_URL") || "http://127.0.0.1:4001",
+  tts_provider: String.to_atom(System.get_env("TTS_PROVIDER") || "edge"),
+  tts_voice: System.get_env("TTS_VOICE")

@@ -1,4 +1,4 @@
-defmodule Lanyard.Presence.Spotify do
+defmodule ArcaneVoice.Presence.Spotify do
   def build_pretty_spotify(activity) when is_map(activity) do
     %{
       track_id: get_track_id(activity),

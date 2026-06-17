@@ -1,7 +1,7 @@
-defmodule Lanyard.Api.Routes.V1.Users do
-  alias Lanyard.Api.Util
-  alias Lanyard.Presence
-  alias Lanyard.Connectivity.Redis
+defmodule ArcaneVoice.Api.Routes.V1.Users do
+  alias ArcaneVoice.Api.Util
+  alias ArcaneVoice.Presence
+  alias ArcaneVoice.Connectivity.Redis
 
   use Plug.Router
 
@@ -37,12 +37,12 @@ defmodule Lanyard.Api.Routes.V1.Users do
           {:ok, parsed} = Jason.decode(body)
 
           Enum.each(parsed, fn {k, v} ->
-            with {:error, _reason} = err <- Lanyard.KV.Interface.validate_pair({k, v}) do
+            with {:error, _reason} = err <- ArcaneVoice.KV.Interface.validate_pair({k, v}) do
               throw(err)
             end
           end)
 
-          Lanyard.KV.Interface.multiset(user_id, parsed)
+          ArcaneVoice.KV.Interface.multiset(user_id, parsed)
 
           Util.respond(conn, {:ok})
         rescue
@@ -64,7 +64,7 @@ defmodule Lanyard.Api.Routes.V1.Users do
 
     case validate_resource_access(conn) do
       :ok ->
-        case Lanyard.KV.Interface.set(String.to_integer(user_id), field, put_body) do
+        case ArcaneVoice.KV.Interface.set(String.to_integer(user_id), field, put_body) do
           {:ok, _v} ->
             Util.respond(conn, {:ok})
 
@@ -82,7 +82,7 @@ defmodule Lanyard.Api.Routes.V1.Users do
 
     case validate_resource_access(conn) do
       :ok ->
-        Lanyard.KV.Interface.del(String.to_integer(user_id), field)
+        ArcaneVoice.KV.Interface.del(String.to_integer(user_id), field)
         Util.respond(conn, {:ok})
 
       :no_permission ->

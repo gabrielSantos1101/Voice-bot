@@ -1,4 +1,4 @@
-defmodule Lanyard do
+defmodule ArcaneVoice do
   require Logger
   use Application
 
@@ -9,16 +9,17 @@ defmodule Lanyard do
     :ets.new(:global_subscribers, [:named_table, :set, :public])
 
     children = [
-      {Finch, name: Lanyard.Finch},
-      {GenRegistry, worker_module: Lanyard.Presence},
-      {Lanyard.Metrics, :normal},
-      {Lanyard.Connectivity.Redis, []},
-      {Lanyard.DiscordBot, %{token: Application.get_env(:lanyard, :bot_token)}},
+      {Finch, name: ArcaneVoice.Finch},
+      {GenRegistry, worker_module: ArcaneVoice.Presence},
+      {ArcaneVoice.Metrics, :normal},
+      {ArcaneVoice.Connectivity.Redis, []},
+      {ArcaneVoice.TTS, []},
+      {ArcaneVoice.DiscordBot, %{token: Application.get_env(:arcane_voice, :bot_token)}},
       {Bandit,
-       plug: Lanyard.Api.Router, scheme: :http, port: Application.get_env(:lanyard, :http_port)}
+       plug: ArcaneVoice.Api.Router, scheme: :http, port: Application.get_env(:arcane_voice, :http_port)}
     ]
 
-    opts = [strategy: :one_for_one, name: Lanyard.Supervisor]
+    opts = [strategy: :one_for_one, name: ArcaneVoice.Supervisor]
     Supervisor.start_link(children, opts)
   end
 
