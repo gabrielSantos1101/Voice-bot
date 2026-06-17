@@ -22,8 +22,6 @@ RUN \
 
 FROM elixir:1.19-alpine
 
-RUN apk add redis
+COPY --from=build /app/_build/prod/rel/arcane_voice /opt/arcane_voice
 
-COPY --from=build /app/_build/prod/rel/lanyard /opt/lanyard
-
-CMD [ "/opt/lanyard/bin/lanyard", "start" ]
+CMD [ "/opt/arcane_voice/bin/arcane_voice", "start" ]

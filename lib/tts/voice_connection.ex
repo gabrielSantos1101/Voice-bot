@@ -98,7 +98,7 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
     {:reply, {:text, payload}, state}
   end
 
-  def websocket_info(msg, ws_req, state) do
+  def websocket_info(msg, _ws_req, state) do
     {:ok, state}
   end
 
