@@ -329,11 +329,18 @@ defmodule ArcaneVoice.TTS.Session do
     else
       header <> ciphertext <> tag
     end
+    if state.frame_index == 0 do
+      Logger.info("Session: FIRST packet header=#{Base.encode16(header)} nonce=#{Base.encode16(nonce)} " <>
+        "ct_size=#{byte_size(ciphertext)} tag_size=#{byte_size(tag)} pkt_size=#{byte_size(packet)}")
+    end
     result = :gen_udp.send(state.udp_socket,
                   to_charlist(state.voice_ip), state.voice_port,
                   packet)
     case result do
-      :ok -> :ok
+      :ok ->
+        if state.frame_index == 0 do
+          Logger.info("Session: UDP send OK (first frame)")
+        end
       {:error, reason} -> Logger.error("Session: UDP send failed: #{inspect(reason)}")
     end
     state
