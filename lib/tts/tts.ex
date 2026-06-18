@@ -47,7 +47,7 @@ defmodule ArcaneVoice.TTS do
     {"30 minutos", 1_800_000}
   ]
 
-  defstruct sessions: %{}, queues: %{}, voice_states: %{}, settings: %{}, idle_sessions: MapSet.new()
+  defstruct sessions: %{}, queues: %{}, voice_states: %{}, settings: %{}, idle_sessions: MapSet.new(), user_voices: %{}
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %__MODULE__{}, name: __MODULE__)
@@ -130,6 +130,9 @@ defmodule ArcaneVoice.TTS do
 
         %{"type" => 2, "data" => %{"name" => "settings"}} ->
           handle_settings_slash(data, state)
+
+        %{"type" => 2, "data" => %{"name" => "voice"}} ->
+          handle_voice_slash(data, state)
 
         %{"type" => 3, "data" => %{"custom_id" => custom_id}} ->
           handle_component(data, custom_id, state)
@@ -232,6 +235,8 @@ defmodule ArcaneVoice.TTS do
     text = if text, do: String.slice(text, 0, @max_text_length), else: nil
     interaction_token = data["token"]
     settings = settings_for(state, guild_id)
+    user_voice = get_in(state.user_voices, [guild_id, user_id])
+    settings = if user_voice, do: %{settings | voice: user_voice}, else: settings
 
     cond do
       is_nil(text) ->
@@ -375,6 +380,80 @@ defmodule ArcaneVoice.TTS do
     state
   end
 
+  defp handle_voice_slash(data, state) do
+    guild_id = data["guild_id"]
+    user_id = get_in(data, ["member", "user", "id"]) || data["user"]["id"]
+    user_voice = get_in(state.user_voices, [guild_id, user_id])
+
+    respond_interaction(data, %{
+      "type" => 4,
+      "data" => %{
+        "flags" => 64,
+        "content" => "Escolha sua voz padrão:",
+        "components" => [
+          %{
+            "type" => 1,
+            "components" => [
+              %{
+                "type" => 3,
+                "custom_id" => "voice:set",
+                "placeholder" => "Minha voz",
+                "min_values" => 1,
+                "max_values" => 1,
+                "options" =>
+                  [%{"label" => "Padrão do servidor", "value" => "", "description" => "Usar a voz configurada no servidor", "default" => is_nil(user_voice)}] ++
+                  Enum.map(@voices, fn voice ->
+                    %{
+                      "label" => voice.label,
+                      "value" => voice.value,
+                      "description" => voice.description,
+                      "default" => voice.value == user_voice
+                    }
+                  end)
+              }
+            ]
+          }
+        ]
+      }
+    })
+
+    state
+  end
+
+  defp handle_component(data, "voice:set", state) do
+    guild_id = data["guild_id"]
+    user_id = get_in(data, ["member", "user", "id"]) || data["user"]["id"]
+    voice = data |> get_in(["data", "values"]) |> List.first()
+
+    if voice == "" do
+      guild_voices = Map.get(state.user_voices, guild_id, %{})
+      guild_voices = Map.drop(guild_voices, [user_id])
+      state = if guild_voices == %{} do
+        %{state | user_voices: Map.delete(state.user_voices, guild_id)}
+      else
+        %{state | user_voices: Map.put(state.user_voices, guild_id, guild_voices)}
+      end
+
+      respond_interaction(data, %{
+        "type" => 4,
+        "data" => %{"flags" => 64, "content" => "Voz pessoal removida. Usando a voz padrão do servidor."}
+      })
+
+      state
+    else
+      guild_voices = Map.get(state.user_voices, guild_id, %{})
+      guild_voices = Map.put(guild_voices, user_id, voice)
+      state = %{state | user_voices: Map.put(state.user_voices, guild_id, guild_voices)}
+
+      respond_interaction(data, %{
+        "type" => 4,
+        "data" => %{"flags" => 64, "content" => "Sua voz foi definida para #{voice_label(voice)}."}
+      })
+
+      state
+    end
+  end
+
   defp handle_component(data, custom_id, state) do
     Logger.debug("TTS: unknown component #{custom_id}")
     respond_interaction(data, %{
@@ -448,7 +527,7 @@ defmodule ArcaneVoice.TTS do
   end
 
   defp settings_content(settings) do
-    "Configurações atuais\nVoz: #{voice_label(settings.voice)}\nTempo em call: #{idle_label(settings.idle_timeout_ms)}\nLer nome: #{if settings.read_username, do: "Sim", else: "Não"}"
+    "Configurações atuais\nVoz do servidor: #{voice_label(settings.voice)}\nTempo em call: #{idle_label(settings.idle_timeout_ms)}\nLer nome: #{if settings.read_username, do: "Sim", else: "Não"}"
   end
 
   defp settings_components(settings) do
@@ -459,7 +538,7 @@ defmodule ArcaneVoice.TTS do
           %{
             "type" => 3,
             "custom_id" => "settings:voice",
-            "placeholder" => "Escolher voz",
+            "placeholder" => "Voz do servidor",
             "min_values" => 1,
             "max_values" => 1,
             "options" =>

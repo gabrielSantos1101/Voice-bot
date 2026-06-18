@@ -27,6 +27,11 @@ defmodule ArcaneVoice.DiscordBot.DiscordApi do
         "name" => "settings",
         "description" => "Configure voice and voice-channel behavior",
         "type" => 1
+      },
+      %{
+        "name" => "voice",
+        "description" => "Set your personal TTS voice preference",
+        "type" => 1
       }
     ]
 
