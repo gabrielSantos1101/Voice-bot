@@ -286,10 +286,8 @@ defmodule ArcaneVoice.TTS.Session do
   defp start_streaming(state) do
     Logger.info("Session: starting stream, #{length(state.audio_frames)} frames total")
     state = %{state | frame_index: 0}
-    state = send_frame(state)
-    timer = Process.send_after(self(), :tick, 20)
-    %{state | stream_timer: timer, frame_index: state.frame_index + 1,
-              sequence: state.sequence + 1, timestamp: state.timestamp + 960}
+    timer = Process.send_after(self(), :tick, 50)
+    %{state | stream_timer: timer}
   end
 
   defp send_frame(state) do

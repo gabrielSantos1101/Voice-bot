@@ -91,10 +91,12 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
   end
 
   def websocket_info({:send_speaking, speaking}, ws_req, state) do
+    speaking_val = if speaking, do: 1, else: 0
     payload = Jason.encode!(%{
       op: 5,
-      d: %{speaking: speaking, delay: 0, ssrc: state.ssrc}
+      d: %{speaking: speaking_val, delay: 0, ssrc: state.ssrc}
     })
+    Logger.debug("Voice WS: sending speaking=#{speaking_val}")
     {:reply, {:text, payload}, state}
   end
 
