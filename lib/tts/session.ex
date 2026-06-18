@@ -5,12 +5,14 @@ defmodule ArcaneVoice.TTS.Session do
 
   alias ArcaneVoice.TTS.Opus
 
-  @encryption_modes ["aead_aes256_gcm_rtpsize", "aead_aes256_gcm", "aead_xchacha20_poly1305_rtpsize"]
+  @encryption_modes ["aead_aes256_gcm_rtpsize", "aead_aes256_gcm", "aead_xchacha20_poly1305_rtpsize", "xsalsa20_poly1305", "xsalsa20_poly1305_rtpsize"]
 
   @cipher_map %{
     "aead_aes256_gcm_rtpsize" => :aes_256_gcm,
     "aead_aes256_gcm" => :aes_256_gcm,
-    "aead_xchacha20_poly1305_rtpsize" => :chacha20_poly1305
+    "aead_xchacha20_poly1305_rtpsize" => :chacha20_poly1305,
+    "xsalsa20_poly1305" => :chacha20_poly1305,
+    "xsalsa20_poly1305_rtpsize" => :chacha20_poly1305
   }
 
   @timeout_ms 60_000
@@ -23,7 +25,7 @@ defmodule ArcaneVoice.TTS.Session do
     audio_frames frame_index stream_timer
     discovered_ip discovered_port interaction_token
     voice_ip voice_port tts_pid timeout_timer
-    dave_ready
+    dave_ready dave_initialized
   ]a
 
   def start_link(opts) do
@@ -159,32 +161,19 @@ defmodule ArcaneVoice.TTS.Session do
 
   def handle_info({:dave_prepare_epoch, epoch}, state) do
     Logger.info("Session: DAVE prepare_epoch epoch=#{epoch}")
-
-    case ArcaneVoice.TTS.Dave.init_session(state.guild_id, String.to_integer(state.bot_user_id)) do
-      {:ok, _} -> :ok
-      other -> Logger.warning("Session: Dave init result: #{inspect(other)}")
-    end
-
-    case ArcaneVoice.TTS.Dave.prepare_epoch(state.guild_id) do
-      {:ok, %{opcode: 26, payload: key_package}} ->
-        Logger.info("Session: DAVE sending key_package (#{byte_size(key_package)}b)")
-        send(state.voice_ws_pid, {:send_dave_binary, 26, key_package})
-
-      other ->
-        Logger.warning("Session: Dave prepare_epoch result: #{inspect(other)}")
-    end
-
-    {:noreply, state}
+    {:noreply, init_dave(state, epoch)}
   end
 
   def handle_info({:dave_frame, 25, _seq, payload}, state) do
     Logger.info("Session: DAVE external_sender_package (#{byte_size(payload)}b)")
-    ArcaneVoice.TTS.Dave.handle_external_sender(state.guild_id, payload)
+    state = init_dave_if_needed(state)
+    _ = ArcaneVoice.TTS.Dave.handle_external_sender(state.guild_id, payload)
     {:noreply, state}
   end
 
   def handle_info({:dave_frame, 27, _seq, payload}, state) do
     Logger.info("Session: DAVE proposals (#{byte_size(payload)}b)")
+    state = init_dave_if_needed(state)
 
     case ArcaneVoice.TTS.Dave.handle_proposals(state.guild_id, payload) do
       {:ok, %{opcode: 28, payload: commit_welcome}} ->
@@ -201,14 +190,14 @@ defmodule ArcaneVoice.TTS.Session do
   def handle_info({:dave_frame, 29, _seq, payload}, state) do
     <<transition_id::32, commit::binary>> = payload
     Logger.info("Session: DAVE announce_commit id=#{transition_id} (#{byte_size(commit)}b)")
-    ArcaneVoice.TTS.Dave.handle_commit(state.guild_id, transition_id, commit)
+    _ = ArcaneVoice.TTS.Dave.handle_commit(state.guild_id, transition_id, commit)
     {:noreply, state}
   end
 
   def handle_info({:dave_frame, 30, _seq, payload}, state) do
     <<transition_id::32, welcome::binary>> = payload
     Logger.info("Session: DAVE welcome id=#{transition_id} (#{byte_size(welcome)}b)")
-    ArcaneVoice.TTS.Dave.handle_welcome(state.guild_id, transition_id, welcome)
+    _ = ArcaneVoice.TTS.Dave.handle_welcome(state.guild_id, transition_id, welcome)
     {:noreply, state}
   end
 
@@ -219,7 +208,7 @@ defmodule ArcaneVoice.TTS.Session do
 
   def handle_info({:dave_execute_transition, transition_id}, state) do
     Logger.info("Session: DAVE execute_transition id=#{transition_id}")
-    ArcaneVoice.TTS.Dave.execute_transition(state.guild_id, transition_id)
+    _ = ArcaneVoice.TTS.Dave.execute_transition(state.guild_id, transition_id)
     {:noreply, state}
   end
 
@@ -235,6 +224,34 @@ defmodule ArcaneVoice.TTS.Session do
     end
 
     {:noreply, state}
+  end
+
+  defp init_dave_if_needed(state) do
+    if state.dave_initialized do
+      state
+    else
+      init_dave(state)
+    end
+  end
+
+  defp init_dave(state, epoch \\ 1) do
+    user_id = String.to_integer(state.bot_user_id)
+
+    case ArcaneVoice.TTS.Dave.init_session(state.guild_id, user_id) do
+      {:ok, _} -> :ok
+      other -> Logger.warning("Session: Dave init: #{inspect(other)}")
+    end
+
+    case ArcaneVoice.TTS.Dave.prepare_epoch(state.guild_id) do
+      {:ok, %{opcode: 26, payload: key_package}} ->
+        Logger.info("Session: DAVE sending key_package (#{byte_size(key_package)}b)")
+        send(state.voice_ws_pid, {:send_dave_binary, 26, key_package})
+
+      other ->
+        Logger.warning("Session: Dave prepare_epoch: #{inspect(other)}")
+    end
+
+    %{state | dave_initialized: true}
   end
 
   # ── Streaming ──
@@ -403,31 +420,37 @@ defmodule ArcaneVoice.TTS.Session do
     byte1 = if marker_bit == 1, do: 0xF8, else: 0x78
     header = <<0x80, byte1, state.sequence::16-big, state.timestamp::32-big, state.ssrc::32-big>>
 
-    packet = if state.dave_ready do
-      case ArcaneVoice.TTS.Dave.encrypt_frame(state.guild_id, opus_frame, "OPUS") do
-        {:ok, %{payload: encrypted}} ->
-          Logger.debug("Session: DAVE encrypted frame #{byte_size(encrypted)}b")
-          header <> encrypted
-        {:error, reason} ->
-          Logger.error("Session: DAVE encrypt failed: #{inspect(reason)}")
-          nil
-      end
-    else
-      cipher = @cipher_map[state.encryption_mode] || :aes_256_gcm
-      n4 = <<state.sequence::32>>
-      nonce_12byte = <<n4::binary, 0::size(64)>>
-      {ciphertext, tag} = :crypto.crypto_one_time_aead(
-        cipher, state.secret_key, nonce_12byte, opus_frame, header, true
-      )
-      pkt = if String.ends_with?(state.encryption_mode, "_rtpsize") do
-        header <> ciphertext <> tag <> n4
-      else
-        header <> ciphertext <> tag
-      end
-      if state.frame_index == 0 do
-        Logger.info("Session: FIRST legacy packet nonce=#{Base.encode16(nonce_12byte)} ct=#{byte_size(ciphertext)}")
-      end
-      pkt
+    packet = cond do
+      state.dave_ready ->
+        case ArcaneVoice.TTS.Dave.encrypt_frame(state.guild_id, opus_frame, "OPUS") do
+          {:ok, %{payload: encrypted}} ->
+            Logger.debug("Session: DAVE encrypted #{byte_size(encrypted)}b")
+            header <> encrypted
+          {:error, reason} ->
+            Logger.warning("Session: DAVE encrypt failed, fallback to legacy: #{inspect(reason)}")
+            nil
+        end
+
+      state.secret_key ->
+        cipher = @cipher_map[state.encryption_mode] || :aes_256_gcm
+        n4 = <<state.sequence::32>>
+        nonce_12byte = <<n4::binary, 0::size(64)>>
+        {ciphertext, tag} = :crypto.crypto_one_time_aead(
+          cipher, state.secret_key, nonce_12byte, opus_frame, header, true
+        )
+        pkt = if String.ends_with?(state.encryption_mode, "_rtpsize") do
+          header <> ciphertext <> tag <> n4
+        else
+          header <> ciphertext <> tag
+        end
+        if state.frame_index == 0 do
+          Logger.info("Session: FIRST legacy packet nonce=#{Base.encode16(nonce_12byte)} ct=#{byte_size(ciphertext)}")
+        end
+        pkt
+
+      true ->
+        Logger.error("Session: no encryption available, cannot send frame")
+        nil
     end
 
     if packet do
