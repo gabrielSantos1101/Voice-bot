@@ -147,8 +147,8 @@ defmodule ArcaneVoice.TTS.Session do
     Logger.info("Session: got session description, mode=#{mode}, key_size=#{byte_size(secret_key)}")
     state = %{state | encryption_mode: mode, secret_key: secret_key}
 
-    if state.dave_ready do
-      Logger.info("Session: DAVE ready, starting TTS encoding")
+    if state.dave_ready || !state.dave_active do
+      Logger.info("Session: #{if state.dave_ready, do: "DAVE ready, ", else: "no DAVE, "}starting TTS encoding")
       send(self(), :encode_and_stream)
     else
       Logger.info("Session: waiting for DAVE handshake before starting stream")
