@@ -470,11 +470,23 @@ defmodule ArcaneVoice.TTS do
     url = "https://discord.com/api/v10/interactions/#{interaction_id}/#{token}/callback"
 
     Task.start(fn ->
-      case :post
-           |> Finch.build(url, [{"Content-Type", "application/json"}], Jason.encode!(body))
-           |> Finch.request(ArcaneVoice.Finch) do
-        {:ok, _} -> :ok
-        {:error, reason} -> Logger.error("TTS: interaction response failed: #{inspect(reason)}")
+      try do
+        encoded = Jason.encode!(body)
+
+        case :post
+             |> Finch.build(url, [{"Content-Type", "application/json"}], encoded)
+             |> Finch.request(ArcaneVoice.Finch) do
+          {:ok, %{status: status}} when status in 200..299 ->
+            Logger.debug("TTS: interaction responded (status #{status})")
+
+          {:ok, %{status: status, body: resp_body}} ->
+            Logger.error("TTS: interaction rejected (status #{status}): #{resp_body}")
+
+          {:error, reason} ->
+            Logger.error("TTS: interaction request failed: #{inspect(reason)}")
+        end
+      rescue
+        e -> Logger.error("TTS: respond_interaction crashed: #{inspect(e)}")
       end
     end)
   end
