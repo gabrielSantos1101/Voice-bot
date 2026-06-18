@@ -17,7 +17,7 @@ defmodule ArcaneVoice.TTS do
     GenServer.cast(__MODULE__, {:voice_server, data})
   end
 
-  def speak(%{text: text, voice_channel_id: voice_channel_id, guild_id: guild_id} = info) do
+  def speak(%{guild_id: guild_id} = info) do
     GenServer.call(__MODULE__, {:speak, info}, 5000)
   end
 

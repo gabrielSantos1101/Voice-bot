@@ -35,8 +35,8 @@ defmodule ArcaneVoice.TTS.Ogg do
 
   defp process_page({_header_type, _granule, lengths, data}, %__MODULE__{is_opuss: false} = acc) do
     case group_segments_into_packets(lengths, data) do
-      [first | _] when is_binary(first) and String.starts_with?(first, "OpusHead") ->
-        %{acc | is_opuss: true}
+      [first | _] when is_binary(first) ->
+        if String.starts_with?(first, "OpusHead"), do: %{acc | is_opuss: true}, else: acc
       _ ->
         acc
     end
