@@ -3,6 +3,17 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
 
   require Logger
 
+  # DAVE opcodes
+  @dave_prepare_epoch 24
+  @dave_external_sender 25
+  @dave_key_package 26
+  @dave_proposals 27
+  @dave_commit_welcome 28
+  @dave_announce_commit 29
+  @dave_welcome 30
+  @dave_execute_transition 22
+  @dave_ready 23
+
   def start_link(session_pid, endpoint, guild_id, user_id, session_id, token) do
     url = "wss://#{endpoint}/?v=4"
 
@@ -14,7 +25,9 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
       token: token,
       heartbeat_timer: nil,
       heartbeat_interval: nil,
-      ssrc: nil
+      ssrc: nil,
+      dave_active: false,
+      dave_seq: 0
     }
 
     :websocket_client.start_link(url, __MODULE__, [state])
@@ -30,32 +43,12 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
   end
 
   def websocket_handle({:text, payload}, ws_req, state) do
-    Logger.debug("Voice WS: text frame: #{payload}")
-
     case Jason.decode(payload) do
       {:ok, %{"op" => 8, "d" => data}} ->
-        interval = data["heartbeat_interval"] |> trunc()
-        Logger.debug("Voice WS: Hello, heartbeat every #{interval}ms")
-
-        identify = Jason.encode!(%{
-          op: 0,
-          d: %{
-            server_id: state.guild_id,
-            user_id: state.user_id,
-            session_id: state.session_id,
-            token: state.token,
-            max_dave_protocol_version: 1
-          }
-        })
-
-        timer = Process.send_after(self(), :heartbeat_tick, interval)
-        {:reply, {:text, identify}, %{state | heartbeat_interval: interval, heartbeat_timer: timer}}
+        handle_hello(data, state)
 
       {:ok, %{"op" => op, "d" => data}} ->
-        handle_op(op, data, state)
-
-      {:ok, _} ->
-        {:ok, state}
+        handle_text_op(op, data, state)
 
       {:error, _} ->
         Logger.warning("Voice WS: decode error: #{payload}")
@@ -64,10 +57,14 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
   end
 
   def websocket_handle({:binary, payload}, ws_req, state) do
-    Logger.debug("Voice WS: binary frame #{byte_size(payload)}b")
-    case Jason.decode(payload) do
-      {:ok, %{"op" => op, "d" => data}} -> handle_op(op, data, state)
-      _ -> {:ok, state}
+    if byte_size(payload) >= 3 do
+      <<seq::16-big, opcode::8, rest::binary>> = payload
+      Logger.debug("Voice WS: binary frame op=#{opcode} seq=#{seq} size=#{byte_size(payload)}b")
+      send(state.session_pid, {:dave_frame, opcode, seq, rest})
+      {:ok, %{state | dave_active: true}}
+    else
+      Logger.warning("Voice WS: binary frame too short: #{byte_size(payload)}b")
+      {:ok, state}
     end
   end
 
@@ -100,6 +97,12 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
     {:reply, {:text, payload}, state}
   end
 
+  def websocket_info({:send_dave_binary, opcode, payload}, ws_req, state) do
+    frame = <<opcode::8, payload::binary>>
+    Logger.debug("Voice WS: sending dave binary op=#{opcode} size=#{byte_size(frame)}b")
+    {:reply, {:binary, frame}, state}
+  end
+
   def websocket_info(msg, _ws_req, state) do
     {:ok, state}
   end
@@ -112,23 +115,61 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
 
   def websocket_terminate(_reason, _conn, _state), do: :ok
 
-  defp handle_op(2, data, state) do
-    Logger.debug("Voice WS: Ready received")
-    send(state.session_pid, {:voice_ready, data["ssrc"], data["ip"], data["port"], data["modes"]})
+  defp handle_hello(data, state) do
+    interval = data["heartbeat_interval"] |> trunc()
+    Logger.debug("Voice WS: Hello, heartbeat every #{interval}ms")
+
+    identify = Jason.encode!(%{
+      op: 0,
+      d: %{
+        server_id: state.guild_id,
+        user_id: state.user_id,
+        session_id: state.session_id,
+        token: state.token,
+        max_dave_protocol_version: 1
+      }
+    })
+
+    timer = Process.send_after(self(), :heartbeat_tick, interval)
+    {:reply, {:text, identify}, %{state | heartbeat_interval: interval, heartbeat_timer: timer}}
+  end
+
+  defp handle_text_op(2, data, state) do
+    dave_ver = data["dave_protocol_version"] || 0
+    Logger.debug("Voice WS: Ready received, dave_protocol_version=#{dave_ver}")
+    send(state.session_pid, {:voice_ready, data["ssrc"], data["ip"], data["port"], data["modes"], dave_ver})
     {:ok, %{state | ssrc: data["ssrc"]}}
   end
 
-  defp handle_op(4, data, state) do
+  defp handle_text_op(4, data, state) do
     key = :binary.list_to_bin(data["secret_key"])
     send(state.session_pid, {:session_description, data["mode"], key})
     {:ok, state}
   end
 
-  defp handle_op(6, _data, state) do
+  defp handle_text_op(6, _data, state) do
     {:ok, state}
   end
 
-  defp handle_op(_op, _data, state) do
+  defp handle_text_op(@dave_prepare_epoch, data, state) do
+    Logger.info("Voice WS: DAVE prepare_epoch version=#{data["protocol_version"]} epoch=#{data["epoch"]}")
+    send(state.session_pid, {:dave_prepare_epoch, data["epoch"]})
+    {:ok, state}
+  end
+
+  defp handle_text_op(@dave_execute_transition, data, state) do
+    Logger.info("Voice WS: DAVE execute_transition id=#{data["transition_id"]}")
+    send(state.session_pid, {:dave_execute_transition, data["transition_id"]})
+    {:ok, state}
+  end
+
+  defp handle_text_op(@dave_ready, data, state) do
+    Logger.info("Voice WS: DAVE ready transition_id=#{data["transition_id"]}")
+    send(state.session_pid, {:dave_ready_signal, data["transition_id"]})
+    {:ok, state}
+  end
+
+  defp handle_text_op(_op, _data, state) do
     {:ok, state}
   end
 end

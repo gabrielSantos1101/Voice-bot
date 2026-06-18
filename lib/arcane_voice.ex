@@ -10,6 +10,7 @@ defmodule ArcaneVoice do
       {ArcaneVoice.Metrics, :normal},
       ArcaneVoice.Debug,
       {ArcaneVoice.TTS, []},
+      ArcaneVoice.TTS.Dave,
       {ArcaneVoice.DiscordBot, %{token: Application.get_env(:arcane_voice, :bot_token)}},
       {Bandit,
        plug: ArcaneVoice.Api.Router, scheme: :http, port: Application.get_env(:arcane_voice, :http_port)}

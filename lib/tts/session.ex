@@ -23,6 +23,7 @@ defmodule ArcaneVoice.TTS.Session do
     audio_frames frame_index stream_timer
     discovered_ip discovered_port interaction_token
     voice_ip voice_port tts_pid timeout_timer
+    dave_ready
   ]a
 
   def start_link(opts) do
@@ -37,7 +38,8 @@ defmodule ArcaneVoice.TTS.Session do
       text: text,
       interaction_token: interaction_token,
       sequence: 0,
-      timestamp: 0
+      timestamp: 0,
+      dave_ready: false
     })
   end
 
@@ -57,10 +59,7 @@ defmodule ArcaneVoice.TTS.Session do
 
   @impl true
   def handle_info(:timeout, state) do
-    Logger.warning("Session: timeout for guild #{state.guild_id}, " <>
-      "session_id=#{inspect(state.session_id)}, " <>
-      "token=#{is_binary(state.voice_token)}, " <>
-      "endpoint=#{is_binary(state.voice_endpoint)}")
+    Logger.warning("Session: timeout for guild #{state.guild_id}")
     notify_ended(state)
     {:stop, :normal, state}
   end
@@ -118,8 +117,9 @@ defmodule ArcaneVoice.TTS.Session do
     end
   end
 
-  def handle_info({:voice_ready, ssrc, ip, port, modes}, state) do
-    Logger.info("Session: voice ready, ssrc=#{ssrc}, available_modes=#{inspect(modes)}")
+  def handle_info({:voice_ready, ssrc, ip, port, modes, dave_ver}, state) do
+    Logger.info("Session: voice ready, ssrc=#{ssrc}, dave_version=#{dave_ver}, modes=#{inspect(modes)}")
+    state = if dave_ver > 0, do: state, else: %{state | dave_ready: true}
 
     selected_mode = Enum.find(@encryption_modes, &(&1 in modes))
 
@@ -145,9 +145,100 @@ defmodule ArcaneVoice.TTS.Session do
     Logger.info("Session: got session description, mode=#{mode}, key_size=#{byte_size(secret_key)}")
     state = %{state | encryption_mode: mode, secret_key: secret_key}
 
-    send(self(), :encode_and_stream)
+    if state.dave_ready do
+      Logger.info("Session: DAVE ready, starting TTS encoding")
+      send(self(), :encode_and_stream)
+    else
+      Logger.info("Session: waiting for DAVE handshake before starting stream")
+    end
+
     {:noreply, state}
   end
+
+  # ── DAVE Handlers ──
+
+  def handle_info({:dave_prepare_epoch, epoch}, state) do
+    Logger.info("Session: DAVE prepare_epoch epoch=#{epoch}")
+
+    case ArcaneVoice.TTS.Dave.init_session(state.guild_id, String.to_integer(state.bot_user_id)) do
+      {:ok, _} -> :ok
+      other -> Logger.warning("Session: Dave init result: #{inspect(other)}")
+    end
+
+    case ArcaneVoice.TTS.Dave.prepare_epoch(state.guild_id) do
+      {:ok, %{opcode: 26, payload: key_package}} ->
+        Logger.info("Session: DAVE sending key_package (#{byte_size(key_package)}b)")
+        send(state.voice_ws_pid, {:send_dave_binary, 26, key_package})
+
+      other ->
+        Logger.warning("Session: Dave prepare_epoch result: #{inspect(other)}")
+    end
+
+    {:noreply, state}
+  end
+
+  def handle_info({:dave_frame, 25, _seq, payload}, state) do
+    Logger.info("Session: DAVE external_sender_package (#{byte_size(payload)}b)")
+    ArcaneVoice.TTS.Dave.handle_external_sender(state.guild_id, payload)
+    {:noreply, state}
+  end
+
+  def handle_info({:dave_frame, 27, _seq, payload}, state) do
+    Logger.info("Session: DAVE proposals (#{byte_size(payload)}b)")
+
+    case ArcaneVoice.TTS.Dave.handle_proposals(state.guild_id, payload) do
+      {:ok, %{opcode: 28, payload: commit_welcome}} ->
+        Logger.info("Session: DAVE sending commit_welcome (#{byte_size(commit_welcome)}b)")
+        send(state.voice_ws_pid, {:send_dave_binary, 28, commit_welcome})
+
+      _ ->
+        :ok
+    end
+
+    {:noreply, state}
+  end
+
+  def handle_info({:dave_frame, 29, _seq, payload}, state) do
+    <<transition_id::32, commit::binary>> = payload
+    Logger.info("Session: DAVE announce_commit id=#{transition_id} (#{byte_size(commit)}b)")
+    ArcaneVoice.TTS.Dave.handle_commit(state.guild_id, transition_id, commit)
+    {:noreply, state}
+  end
+
+  def handle_info({:dave_frame, 30, _seq, payload}, state) do
+    <<transition_id::32, welcome::binary>> = payload
+    Logger.info("Session: DAVE welcome id=#{transition_id} (#{byte_size(welcome)}b)")
+    ArcaneVoice.TTS.Dave.handle_welcome(state.guild_id, transition_id, welcome)
+    {:noreply, state}
+  end
+
+  def handle_info({:dave_frame, opcode, seq, _payload}, state) do
+    Logger.debug("Session: DAVE unhandled frame op=#{opcode} seq=#{seq}")
+    {:noreply, state}
+  end
+
+  def handle_info({:dave_execute_transition, transition_id}, state) do
+    Logger.info("Session: DAVE execute_transition id=#{transition_id}")
+    ArcaneVoice.TTS.Dave.execute_transition(state.guild_id, transition_id)
+    {:noreply, state}
+  end
+
+  def handle_info({:dave_ready_signal, transition_id}, state) do
+    Logger.info("Session: DAVE ready signal id=#{transition_id}")
+    state = %{state | dave_ready: true}
+
+    if state.secret_key do
+      Logger.info("Session: DAVE ready AND session description available, starting stream")
+      send(self(), :encode_and_stream)
+    else
+      Logger.info("Session: DAVE ready, waiting for session description")
+    end
+
+    ArcaneVoice.TTS.Dave.close(state.guild_id)
+    {:noreply, state}
+  end
+
+  # ── Streaming ──
 
   def handle_info(:encode_and_stream, state) do
     Logger.info("Session: encoding TTS for text: #{String.slice(state.text, 0, 50)}")
@@ -314,23 +405,26 @@ defmodule ArcaneVoice.TTS.Session do
     header = <<0x80, byte1, state.sequence::16-big, state.timestamp::32-big, state.ssrc::32-big>>
 
     cipher = @cipher_map[state.encryption_mode] || :aes_256_gcm
-    nonce = if String.ends_with?(state.encryption_mode, "_rtpsize") do
-      binary_part(header, 0, 4)
+
+    {nonce_4byte, nonce_12byte} = if String.ends_with?(state.encryption_mode, "_rtpsize") do
+      n4 = <<state.sequence::32>>
+      {n4, <<n4::binary, 0::size(64)>>}
     else
-      <<state.sequence::32>>
+      n4 = <<state.sequence::32>>
+      {n4, <<n4::binary, 0::size(64)>>}
     end
 
     {ciphertext, tag} = :crypto.crypto_one_time_aead(
-      cipher, state.secret_key, nonce, opus_frame, header, true
+      cipher, state.secret_key, nonce_12byte, opus_frame, header, true
     )
 
     packet = if String.ends_with?(state.encryption_mode, "_rtpsize") do
-      header <> ciphertext <> tag <> nonce
+      header <> ciphertext <> tag <> nonce_4byte
     else
       header <> ciphertext <> tag
     end
     if state.frame_index == 0 do
-      Logger.info("Session: FIRST packet header=#{Base.encode16(header)} nonce=#{Base.encode16(nonce)} " <>
+      Logger.info("Session: FIRST packet header=#{Base.encode16(header)} nonce=#{Base.encode16(nonce_12byte)} " <>
         "ct_size=#{byte_size(ciphertext)} tag_size=#{byte_size(tag)} pkt_size=#{byte_size(packet)}")
     end
     result = :gen_udp.send(state.udp_socket,
