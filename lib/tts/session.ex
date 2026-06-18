@@ -480,6 +480,19 @@ defmodule ArcaneVoice.TTS.Session do
           cipher, state.secret_key, nonce_12byte, header, opus_frame, true
         )
 
+        try do
+          {:ok, decrypted} = :crypto.crypto_one_time_aead(
+            cipher, state.secret_key, nonce_12byte, header, ciphertext <> tag, false
+          )
+          if decrypted != opus_frame do
+            Logger.warning("Session: encrypt VERIFY MISMATCH ct=#{byte_size(ciphertext)}b " <>
+              "got=#{byte_size(decrypted)}b expected=#{byte_size(opus_frame)}b " <>
+              "aad=#{byte_size(header)}b pt=#{byte_size(opus_frame)}b")
+          end
+        rescue
+          e -> Logger.error("Session: encrypt VERIFY ERROR: #{inspect(e)}")
+        end
+
         pkt = if String.ends_with?(state.encryption_mode, "_rtpsize") do
           header <> ciphertext <> tag <> n4
         else
