@@ -93,6 +93,16 @@ defmodule ArcaneVoice.TTS do
   end
 
   @impl true
+  def handle_info({:session_ended, guild_id, pid}, state) do
+    if Map.get(state.sessions, guild_id) == pid do
+      state = %{state | sessions: Map.delete(state.sessions, guild_id)}
+      {:noreply, dequeue_next(state, guild_id)}
+    else
+      Logger.debug("TTS: ignoring stale session_ended for guild=#{guild_id} pid=#{inspect(pid)}")
+      {:noreply, state}
+    end
+  end
+
   def handle_info({:session_ended, guild_id}, state) do
     state = %{state | sessions: Map.delete(state.sessions, guild_id)}
     {:noreply, dequeue_next(state, guild_id)}
@@ -100,7 +110,7 @@ defmodule ArcaneVoice.TTS do
 
   def handle_info({:DOWN, _ref, :process, pid, _reason}, state) do
     guild_id = Enum.find_value(state.sessions, fn {g, p} -> if p == pid, do: g end)
-    if guild_id, do: send(self(), {:session_ended, guild_id})
+    if guild_id, do: send(self(), {:session_ended, guild_id, pid})
     {:noreply, state}
   end
 
@@ -197,6 +207,7 @@ defmodule ArcaneVoice.TTS do
                 else: %{state | queues: Map.put(state.queues, guild_id, rest)}
 
         pid = start_session(guild_id, %{next | voice_channel_id: next.voice_channel_id})
+        Process.monitor(pid)
         send(pid, {:tts_config, self(), guild_id})
         Logger.info("TTS: dequeued item for guild #{guild_id}")
         %{st | sessions: Map.put(st.sessions, guild_id, pid)}

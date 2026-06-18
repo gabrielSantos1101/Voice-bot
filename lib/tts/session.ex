@@ -330,7 +330,7 @@ defmodule ArcaneVoice.TTS.Session do
   end
 
   defp notify_ended(state) do
-    if state.tts_pid, do: send(state.tts_pid, {:session_ended, state.guild_id})
+    if state.tts_pid, do: send(state.tts_pid, {:session_ended, state.guild_id, self()})
   end
 
   defp connect_voice_ws(state) do
