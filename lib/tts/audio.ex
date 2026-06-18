@@ -18,6 +18,7 @@ defmodule ArcaneVoice.TTS.Audio do
       "-acodec", "pcm_s16le",
       "-ar", "48000",
       "-ac", "1",
+      "-af", "volume=2.0",
       "-loglevel", "error",
       "-"
     ]
