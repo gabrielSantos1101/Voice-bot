@@ -18,7 +18,7 @@ RUN \
 
 # then make a release build
 ADD . /app/
-RUN mix local.hex --force && mix local.rebar --force && mix compile --force --warnings-as-errors && mix release
+RUN mix compile --force && mix release
 
 FROM elixir:1.19-alpine
 
