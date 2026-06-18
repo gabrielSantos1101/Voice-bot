@@ -66,7 +66,7 @@ defmodule ArcaneVoice.TTS.Ogg do
     total_seg = Enum.sum(lengths)
     Logger.info("Ogg: page granule=#{granule} segs=#{inspect(lengths)} total=#{total_seg}b " <>
       "→ #{length(audio)} audio pkts (#{Enum.sum(Enum.map(audio, &byte_size/1))}b) pending=#{byte_size(pending)}b")
-    %{acc | packets: audio ++ acc.packets, pending: pending}
+    %{acc | packets: Enum.reverse(audio) ++ acc.packets, pending: pending}
   end
 
   # Build Opus packets from segment lengths.
