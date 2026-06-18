@@ -407,10 +407,22 @@ defmodule ArcaneVoice.TTS.Session do
 
   defp start_streaming(state) do
     {:ok, {local_ip, local_port}} = :inet.sockname(state.udp_socket)
-    Logger.info("Session: STARTING STREAM, #{length(state.audio_frames)} frames, " <>
+
+    # skip leading DTX/silence frames (3 bytes = <<0xF8, 0xFF, 0xFE>>)
+    first_audio_idx =
+      state.audio_frames
+      |> Enum.find_index(fn {_ts, frame} -> byte_size(frame) > 3 end)
+      || 0
+
+    if first_audio_idx > 0 do
+      Logger.info("Session: skipping #{first_audio_idx} leading DTX frames")
+    end
+
+    Logger.info("Session STARTING STREAM, #{length(state.audio_frames)} frames (from idx #{first_audio_idx}), " <>
       "socket=#{inspect(local_ip)}:#{local_port}, dest=#{state.voice_ip}:#{state.voice_port}, " <>
       "encryption=#{state.encryption_mode}, ssrc=#{state.ssrc}")
-    state = %{state | frame_index: 0}
+
+    state = %{state | frame_index: first_audio_idx, timestamp: first_audio_idx * 960}
     timer = Process.send_after(self(), :tick, 50)
     %{state | stream_timer: timer}
   end
