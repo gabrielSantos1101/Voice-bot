@@ -64,8 +64,10 @@ defmodule ArcaneVoice.TTS.Ogg do
       byte_size(p) >= 8 and binary_part(p, 0, 8) == "OpusTags"
     end)
     total_seg = Enum.sum(lengths)
+    sample_sizes = audio |> Enum.take(5) |> Enum.map(&byte_size/1) |> inspect()
     Logger.info("Ogg: page granule=#{granule} segs=#{inspect(lengths)} total=#{total_seg}b " <>
-      "→ #{length(audio)} audio pkts (#{Enum.sum(Enum.map(audio, &byte_size/1))}b) pending=#{byte_size(pending)}b")
+      "→ #{length(audio)} audio pkts sizes=#{sample_sizes} pending=#{byte_size(pending)}b " <>
+      "acc_packets_before=#{length(acc.packets)}")
     %{acc | packets: Enum.reverse(audio) ++ acc.packets, pending: pending}
   end
 
