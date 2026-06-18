@@ -12,7 +12,6 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
   @dave_announce_commit 29
   @dave_welcome 30
   @dave_execute_transition 22
-  @dave_ready 23
 
   def start_link(session_pid, endpoint, guild_id, user_id, session_id, token) do
     url = "wss://#{endpoint}/?v=4"
@@ -135,15 +134,16 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
   end
 
   defp handle_text_op(2, data, state) do
-    dave_ver = data["dave_protocol_version"] || 0
-    Logger.debug("Voice WS: Ready received, dave_protocol_version=#{dave_ver}")
-    send(state.session_pid, {:voice_ready, data["ssrc"], data["ip"], data["port"], data["modes"], dave_ver})
+    Logger.debug("Voice WS: Ready received")
+    send(state.session_pid, {:voice_ready, data["ssrc"], data["ip"], data["port"], data["modes"]})
     {:ok, %{state | ssrc: data["ssrc"]}}
   end
 
   defp handle_text_op(4, data, state) do
     key = :binary.list_to_bin(data["secret_key"])
-    send(state.session_pid, {:session_description, data["mode"], key})
+    dave_ver = data["dave_protocol_version"] || 0
+    Logger.info("Voice WS: Session Description mode=#{data["mode"]} dave_protocol_version=#{dave_ver}")
+    send(state.session_pid, {:session_description, data["mode"], key, dave_ver})
     {:ok, state}
   end
 
@@ -160,12 +160,6 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
   defp handle_text_op(@dave_execute_transition, data, state) do
     Logger.info("Voice WS: DAVE execute_transition id=#{data["transition_id"]}")
     send(state.session_pid, {:dave_execute_transition, data["transition_id"]})
-    {:ok, state}
-  end
-
-  defp handle_text_op(@dave_ready, data, state) do
-    Logger.info("Voice WS: DAVE ready transition_id=#{data["transition_id"]}")
-    send(state.session_pid, {:dave_ready_signal, data["transition_id"]})
     {:ok, state}
   end
 

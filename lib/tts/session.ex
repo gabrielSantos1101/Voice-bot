@@ -1,9 +1,9 @@
 defmodule ArcaneVoice.TTS.Session do
   @moduledoc false
 
-  # BUILD_ID: 7264d85-fix-otp27-order (OTP27 swaps arg4/arg5 in /6 API, ct=pt correct)
-  # Removed decrypt verify (no OTP27 API for /6 decrypt with separate args)
-  @build_id "2026-06-18-otp27-v4-no-verify"
+  # BUILD_ID: DAVE fixes - read dave_ver from Session Description (op 4), send op 23 as client,
+  # set dave_ready on Execute Transition (op 22), removed wrong dave_ver from Ready (op 2)
+  @build_id "2026-06-18-dave-fix"
 
   require Logger
 
@@ -11,6 +11,11 @@ defmodule ArcaneVoice.TTS.Session do
 
   @encryption_modes ["aead_aes256_gcm_rtpsize", "aead_aes256_gcm", "aead_xchacha20_poly1305_rtpsize", "xsalsa20_poly1305", "xsalsa20_poly1305_rtpsize"]
 
+  # WARNING: :chacha20_poly1305 in Erlang is IETF ChaCha20 (12-byte nonce).
+  # Discord's aead_xchacha20_poly1305_rtpsize uses XChaCha20 (24-byte nonce via HChaCha20).
+  # This mapping is INCORRECT but Erlang's :crypto has no XChaCha20 support.
+  # We rely on AES-GCM being preferred/available; if only XChaCha20 is offered, transport
+  # encryption will fail. A libsodium NIF is needed to fix this properly.
   @cipher_map %{
     "aead_aes256_gcm_rtpsize" => :aes_256_gcm,
     "aead_aes256_gcm" => :aes_256_gcm,
@@ -124,9 +129,8 @@ defmodule ArcaneVoice.TTS.Session do
     end
   end
 
-  def handle_info({:voice_ready, ssrc, ip, port, modes, dave_ver}, state) do
-    Logger.info("Session: voice ready, ssrc=#{ssrc}, dave_version=#{dave_ver}, modes=#{inspect(modes)}")
-    state = %{state | dave_active: dave_ver > 0}
+  def handle_info({:voice_ready, ssrc, ip, port, modes}, state) do
+    Logger.info("Session: voice ready, ssrc=#{ssrc}, modes=#{inspect(modes)}")
 
     selected_mode = Enum.find(@encryption_modes, &(&1 in modes))
 
@@ -148,9 +152,9 @@ defmodule ArcaneVoice.TTS.Session do
     end
   end
 
-  def handle_info({:session_description, mode, secret_key}, state) do
-    Logger.info("Session: got session description, mode=#{mode}, key_size=#{byte_size(secret_key)}")
-    state = %{state | encryption_mode: mode, secret_key: secret_key}
+  def handle_info({:session_description, mode, secret_key, dave_ver}, state) do
+    Logger.info("Session: got session description, mode=#{mode}, key_size=#{byte_size(secret_key)}, dave_ver=#{dave_ver}")
+    state = %{state | encryption_mode: mode, secret_key: secret_key, dave_active: dave_ver > 0}
 
     if state.dave_ready || !state.dave_active do
       Logger.info("Session: #{if state.dave_ready, do: "DAVE ready, ", else: "no DAVE, "}starting TTS encoding")
@@ -196,6 +200,10 @@ defmodule ArcaneVoice.TTS.Session do
     <<transition_id::32, commit::binary>> = payload
     Logger.info("Session: DAVE announce_commit id=#{transition_id} (#{byte_size(commit)}b)")
     _ = ArcaneVoice.TTS.Dave.handle_commit(state.guild_id, transition_id, commit)
+    if state.voice_ws_pid do
+      Logger.info("Session: DAVE sending transition ready (op 23)")
+      send(state.voice_ws_pid, {:send_dave_binary, 23, <<transition_id::32>>})
+    end
     {:noreply, state}
   end
 
@@ -214,15 +222,10 @@ defmodule ArcaneVoice.TTS.Session do
   def handle_info({:dave_execute_transition, transition_id}, state) do
     Logger.info("Session: DAVE execute_transition id=#{transition_id}")
     _ = ArcaneVoice.TTS.Dave.execute_transition(state.guild_id, transition_id)
-    {:noreply, state}
-  end
-
-  def handle_info({:dave_ready_signal, transition_id}, state) do
-    Logger.info("Session: DAVE ready signal id=#{transition_id}")
     state = %{state | dave_ready: true}
 
     if state.secret_key do
-      Logger.info("Session: DAVE ready AND session description available, starting stream")
+      Logger.info("Session: DAVE ready, starting stream")
       send(self(), :encode_and_stream)
     else
       Logger.info("Session: DAVE ready, waiting for session description")
