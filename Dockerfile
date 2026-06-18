@@ -23,7 +23,7 @@ RUN \
 FROM elixir:1.19-alpine
 
 RUN apk add --no-cache python3 py3-pip ffmpeg && \
-    pip3 install --no-cache-dir edge-tts
+    python3 -m pip install --break-system-packages --no-cache-dir edge-tts
 
 COPY --from=build /app/_build/prod/rel/arcane_voice /opt/arcane_voice
 
