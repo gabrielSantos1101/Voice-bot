@@ -158,10 +158,10 @@ defmodule ArcaneVoice.TTS do
             %{state | queues: Map.put(state.queues, guild_id, queue ++ [%{voice_channel_id: channel_id, text: text, interaction_token: interaction_token}])}
 
           else
-            respond_interaction(data, %{
-              "type" => 4,
-              "data" => %{"content" => "Pensando...", "flags" => 64}
-            })
+          respond_interaction(data, %{
+            "type" => 4,
+            "data" => %{"content" => "Pensando..."}
+          })
 
             pid = start_session(guild_id, %{voice_channel_id: channel_id, text: text, interaction_token: interaction_token})
             Process.monitor(pid)
