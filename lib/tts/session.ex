@@ -424,8 +424,22 @@ defmodule ArcaneVoice.TTS.Session do
       state.dave_active && state.dave_ready ->
         case ArcaneVoice.TTS.Dave.encrypt_frame(state.guild_id, opus_frame, "OPUS") do
           {:ok, %{payload: encrypted}} ->
-            Logger.debug("Session: DAVE encrypted #{byte_size(encrypted)}b")
-            header <> encrypted
+            Logger.debug("Session: DAVE encrypt produced #{byte_size(encrypted)}b frame")
+            cipher = @cipher_map[state.encryption_mode] || :aes_256_gcm
+            n4 = <<state.sequence::32>>
+            nonce_12byte = <<n4::binary, 0::size(64)>>
+            {ciphertext, tag} = :crypto.crypto_one_time_aead(
+              cipher, state.secret_key, nonce_12byte, encrypted, header, true
+            )
+            pkt = if String.ends_with?(state.encryption_mode, "_rtpsize") do
+              header <> ciphertext <> tag <> n4
+            else
+              header <> ciphertext <> tag
+            end
+            if state.frame_index == 0 do
+              Logger.info("Session: FIRST DAVE packet nonce=#{Base.encode16(nonce_12byte)} ct=#{byte_size(ciphertext)}")
+            end
+            pkt
           {:error, reason} ->
             Logger.warning("Session: DAVE encrypt failed: #{inspect(reason)}")
             nil
