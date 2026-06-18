@@ -1,8 +1,10 @@
 # ArcaneVoice
 
-Standalone Discord voice bot for Text-to-Speech using edge-tts (Microsoft Edge TTS engine).
+Bot de voz exclusivo do servidor [**Arcane**](https://discord.gg/v9Nb6GQd).
 
-Converts text messages to spoken audio in Discord voice channels. Runs independently from Arcane Stack as a separate bot on the server.
+Standalone Discord voice bot para Text-to-Speech usando edge-tts (Microsoft Edge TTS engine).
+
+Converte mensagens de texto em áudio falado em canais de voz do Discord. Executa independentemente como um bot separado no servidor.
 
 ## How it works
 
