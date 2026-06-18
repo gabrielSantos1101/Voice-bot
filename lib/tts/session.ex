@@ -34,7 +34,7 @@ defmodule ArcaneVoice.TTS.Session do
     discovered_ip discovered_port interaction_token
     voice_ip voice_port tts_pid timeout_timer
     dave_ready dave_initialized dave_active
-    first_sent
+    dave_key_package_sent first_sent
   ]a
 
   def start_link(opts) do
@@ -176,6 +176,7 @@ defmodule ArcaneVoice.TTS.Session do
     Logger.info("Session: DAVE external_sender_package (#{byte_size(payload)}b)")
     state = ensure_dave_initialized(state)
     _ = ArcaneVoice.TTS.Dave.handle_external_sender(state.guild_id, payload)
+    state = prepare_dave_epoch(state, 1)
     {:noreply, state}
   end
 
@@ -256,16 +257,21 @@ defmodule ArcaneVoice.TTS.Session do
   defp prepare_dave_epoch(state, epoch) do
     state = ensure_dave_initialized(state)
 
-    case ArcaneVoice.TTS.Dave.prepare_epoch(state.guild_id, epoch) do
-      {:ok, %{opcode: 26, payload: key_package}} ->
-        Logger.info("Session: DAVE sending key_package (#{byte_size(key_package)}b)")
-        send(state.voice_ws_pid, {:send_dave_binary, 26, key_package})
+    if state.dave_key_package_sent do
+      Logger.debug("Session: DAVE key_package already sent, skipping epoch=#{epoch}")
+      state
+    else
+      case ArcaneVoice.TTS.Dave.prepare_epoch(state.guild_id, epoch) do
+        {:ok, %{opcode: 26, payload: key_package}} ->
+          Logger.info("Session: DAVE sending key_package (#{byte_size(key_package)}b)")
+          send(state.voice_ws_pid, {:send_dave_binary, 26, key_package})
+          %{state | dave_key_package_sent: true}
 
-      other ->
-        Logger.warning("Session: Dave prepare_epoch: #{inspect(other)}")
+        other ->
+          Logger.warning("Session: Dave prepare_epoch: #{inspect(other)}")
+          state
+      end
     end
-
-    state
   end
 
   # ── Streaming ──

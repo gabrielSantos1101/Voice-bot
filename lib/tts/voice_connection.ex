@@ -6,9 +6,10 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
   # DAVE opcodes
   @dave_prepare_epoch 24
   @dave_execute_transition 22
+  @dave_binary_opcodes 22..31
 
   def start_link(session_pid, endpoint, guild_id, user_id, session_id, token) do
-    url = "wss://#{endpoint}/?v=4"
+    url = "wss://#{endpoint}/?v=8"
 
     state = %{
       session_pid: session_pid,
@@ -35,13 +36,13 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
     {:ok, state}
   end
 
-  def websocket_handle({:text, payload}, ws_req, state) do
+  def websocket_handle({:text, payload}, _ws_req, state) do
     case Jason.decode(payload) do
       {:ok, %{"op" => 8, "d" => data}} ->
-        handle_hello(data, state)
+        handle_hello(data, remember_seq(payload, state))
 
       {:ok, %{"op" => op, "d" => data}} ->
-        handle_text_op(op, data, state)
+        handle_text_op(op, data, remember_seq(payload, state))
 
       {:error, _} ->
         Logger.warning("Voice WS: decode error: #{payload}")
@@ -49,20 +50,21 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
     end
   end
 
-  def websocket_handle({:binary, payload}, ws_req, state) do
-    # Voice gateway v4: binary frames are <opcode::8, payload::binary> (no sequence number)
-    if byte_size(payload) >= 1 do
-      <<opcode::8, rest::binary>> = payload
-      Logger.debug("Voice WS: binary frame op=#{opcode} size=#{byte_size(payload)}b")
-      send(state.session_pid, {:dave_frame, opcode, 0, rest})
-      {:ok, %{state | dave_active: true}}
-    else
-      Logger.warning("Voice WS: binary frame too short: #{byte_size(payload)}b")
-      {:ok, state}
+  def websocket_handle({:binary, payload}, _ws_req, state) do
+    case parse_dave_binary(payload) do
+      {:ok, seq, opcode, rest} ->
+        Logger.debug("Voice WS: binary frame op=#{opcode} seq=#{inspect(seq)} size=#{byte_size(payload)}b")
+        send(state.session_pid, {:dave_frame, opcode, seq, rest})
+        state = if is_integer(seq), do: %{state | dave_seq: seq}, else: state
+        {:ok, %{state | dave_active: true}}
+
+      :error ->
+        Logger.warning("Voice WS: binary frame too short: #{byte_size(payload)}b")
+        {:ok, state}
     end
   end
 
-  def websocket_info({:select_protocol, ip, port, mode}, ws_req, state) do
+  def websocket_info({:select_protocol, ip, port, mode}, _ws_req, state) do
     payload = Jason.encode!(%{
       op: 1,
       d: %{protocol: "udp", data: %{address: ip, port: port, mode: mode}}
@@ -70,9 +72,9 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
     {:reply, {:text, payload}, state}
   end
 
-  def websocket_info(:heartbeat_tick, ws_req, state) do
+  def websocket_info(:heartbeat_tick, _ws_req, state) do
     nonce = System.system_time(:millisecond)
-    payload = Jason.encode!(%{op: 3, d: nonce})
+    payload = Jason.encode!(%{op: 3, d: %{t: nonce, seq_ack: state.dave_seq}})
     timer = Process.send_after(self(), :heartbeat_tick, state.heartbeat_interval)
     {:reply, {:text, payload}, %{state | heartbeat_timer: timer}}
   end
@@ -81,7 +83,7 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
     {:close, "disconnect", state}
   end
 
-  def websocket_info({:send_speaking, speaking}, ws_req, state) do
+  def websocket_info({:send_speaking, speaking}, _ws_req, state) do
     speaking_val = if speaking, do: 1, else: 0
     payload = Jason.encode!(%{
       op: 5,
@@ -91,7 +93,7 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
     {:reply, {:text, payload}, state}
   end
 
-  def websocket_info({:send_dave_binary, opcode, payload}, ws_req, state) do
+  def websocket_info({:send_dave_binary, opcode, payload}, _ws_req, state) do
     frame = <<opcode::8, payload::binary>>
     Logger.debug(
       "Voice WS: sending dave binary op=#{opcode} size=#{byte_size(frame)}b head=#{frame_head(frame)}"
@@ -99,7 +101,7 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
     {:reply, {:binary, frame}, state}
   end
 
-  def websocket_info({:send_transition_ready, transition_id}, ws_req, state) do
+  def websocket_info({:send_transition_ready, transition_id}, _ws_req, state) do
     payload = Jason.encode!(%{
       op: 23,
       d: %{transition_id: transition_id}
@@ -109,7 +111,7 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
     {:reply, {:text, payload}, state}
   end
 
-  def websocket_info(msg, _ws_req, state) do
+  def websocket_info(_msg, _ws_req, state) do
     {:ok, state}
   end
 
@@ -177,5 +179,22 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
   defp frame_head(frame) do
     size = min(byte_size(frame), 8)
     Base.encode16(binary_part(frame, 0, size), case: :lower)
+  end
+
+  defp parse_dave_binary(<<seq::16-big, opcode::8, rest::binary>>) when opcode in @dave_binary_opcodes do
+    {:ok, seq, opcode, rest}
+  end
+
+  defp parse_dave_binary(<<opcode::8, rest::binary>>) when opcode in @dave_binary_opcodes do
+    {:ok, nil, opcode, rest}
+  end
+
+  defp parse_dave_binary(_), do: :error
+
+  defp remember_seq(payload, state) do
+    case Jason.decode(payload) do
+      {:ok, %{"seq" => seq}} when is_integer(seq) -> %{state | dave_seq: seq}
+      _ -> state
+    end
   end
 end
