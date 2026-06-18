@@ -432,7 +432,7 @@ defmodule ArcaneVoice.TTS.Session do
             n4 = <<state.sequence::32>>
             nonce_12byte = <<n4::binary, 0::size(64)>>
             {ciphertext, tag} = :crypto.crypto_one_time_aead(
-              cipher, state.secret_key, nonce_12byte, encrypted, header, true
+              cipher, state.secret_key, nonce_12byte, header, encrypted, true
             )
             pkt = if String.ends_with?(state.encryption_mode, "_rtpsize") do
               header <> ciphertext <> tag <> n4
@@ -453,7 +453,7 @@ defmodule ArcaneVoice.TTS.Session do
         n4 = <<state.sequence::32>>
         nonce_12byte = <<n4::binary, 0::size(64)>>
         {ciphertext, tag} = :crypto.crypto_one_time_aead(
-          cipher, state.secret_key, nonce_12byte, opus_frame, header, true
+          cipher, state.secret_key, nonce_12byte, header, opus_frame, true
         )
 
         # verify encryption roundtrip
