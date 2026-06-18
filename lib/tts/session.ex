@@ -35,6 +35,7 @@ defmodule ArcaneVoice.TTS.Session do
     voice_ip voice_port tts_pid timeout_timer
     dave_ready dave_initialized dave_active
     dave_key_package_sent first_sent
+    encoding_task stream_after_encode
   ]a
 
   def start_link(opts) do
@@ -281,54 +282,57 @@ defmodule ArcaneVoice.TTS.Session do
   # ── Streaming ──
 
   def handle_info(:encode_only, state) do
-    if state.audio_frames do
-      {:noreply, state}
-    else
-      Logger.info("Session: encoding TTS for debug/cache: #{String.slice(state.text, 0, 50)}")
-
-      case encode_tts(state) do
-        {:ok, frames} ->
-          log_encoded_frames(frames)
-          {:noreply, %{state | audio_frames: frames}}
-
-        {:error, reason} ->
-          Logger.error("Session: TTS encoding failed: #{inspect(reason)}")
-          {:stop, :tts_failed, state}
-      end
-    end
+    {:noreply, maybe_start_encoding(state, false)}
   end
 
   def handle_info(:encode_and_stream, state) do
+    state = maybe_start_encoding(state, true)
+
     if state.audio_frames do
       send(self(), :stream_when_ready)
-      {:noreply, state}
+    end
+
+    {:noreply, state}
+  end
+
+  def handle_info({:tts_encoded, {:ok, frames}}, state) do
+    log_encoded_frames(frames)
+    state = %{state | audio_frames: frames, encoding_task: nil}
+
+    if state.stream_after_encode do
+      send(self(), :stream_when_ready)
+      {:noreply, %{state | stream_after_encode: false}}
     else
-      Logger.info("Session: encoding TTS for text: #{String.slice(state.text, 0, 50)}")
-
-      case encode_tts(state) do
-        {:ok, frames} ->
-          log_encoded_frames(frames)
-          state = %{state | audio_frames: frames}
-          send(self(), :stream_when_ready)
-          {:noreply, state}
-
-        {:error, reason} ->
-          Logger.error("Session: TTS encoding failed: #{inspect(reason)}")
-          {:stop, :tts_failed, state}
-      end
+      {:noreply, state}
     end
   end
 
-  def handle_info(:stream_when_ready, state) do
-    if state.voice_ws_pid do
-      Logger.info("Session: SENDING SPEAKING=1 NOW")
-      send(state.voice_ws_pid, {:send_speaking, true})
-    else
-      Logger.error("Session: voice_ws_pid is nil, CANNOT send speaking=1")
-    end
+  def handle_info({:tts_encoded, {:error, reason}}, state) do
+    Logger.error("Session: TTS encoding failed: #{inspect(reason)}")
+    {:stop, :tts_failed, %{state | encoding_task: nil}}
+  end
 
-    Process.send_after(self(), :do_stream, 30)
-    {:noreply, state}
+  def handle_info({:tts_encoded, other}, state) do
+    Logger.error("Session: TTS encoding returned unexpected result: #{inspect(other)}")
+    {:stop, :tts_failed, %{state | encoding_task: nil}}
+  end
+
+  def handle_info(:stream_when_ready, state) do
+    cond do
+      is_nil(state.audio_frames) ->
+        Logger.info("Session: stream requested before audio is ready; waiting for encoder")
+        {:noreply, maybe_start_encoding(%{state | stream_after_encode: true}, true)}
+
+      is_nil(state.voice_ws_pid) ->
+        Logger.error("Session: voice_ws_pid is nil, CANNOT send speaking=1")
+        {:noreply, state}
+
+      true ->
+        Logger.info("Session: SENDING SPEAKING=1 NOW")
+        send(state.voice_ws_pid, {:send_speaking, true})
+        Process.send_after(self(), :do_stream, 30)
+        {:noreply, state}
+    end
   end
 
   def handle_info(:do_stream, state) do
@@ -457,6 +461,30 @@ defmodule ArcaneVoice.TTS.Session do
         Logger.error("Session: TTS synthesis timed out after 30s")
         {:error, "TTS synthesis timed out"}
     end
+  end
+
+  defp maybe_start_encoding(%{audio_frames: frames} = state, stream_after) when not is_nil(frames) do
+    %{state | stream_after_encode: state.stream_after_encode || stream_after}
+  end
+
+  defp maybe_start_encoding(%{encoding_task: task} = state, stream_after) when not is_nil(task) do
+    %{state | stream_after_encode: state.stream_after_encode || stream_after}
+  end
+
+  defp maybe_start_encoding(state, stream_after) do
+    caller = self()
+    text = state.text
+
+    Logger.info(
+      "Session: encoding TTS #{if stream_after, do: "for stream", else: "for debug/cache"}: #{String.slice(text, 0, 50)}"
+    )
+
+    {:ok, task} =
+      Task.start(fn ->
+        send(caller, {:tts_encoded, encode_tts(%{state | text: text})})
+      end)
+
+    %{state | encoding_task: task, stream_after_encode: stream_after}
   end
 
   defp log_encoded_frames(frames) do
