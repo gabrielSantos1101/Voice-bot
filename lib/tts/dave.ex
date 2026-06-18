@@ -133,7 +133,8 @@ defmodule ArcaneVoice.TTS.Dave do
 
   defp drain_buf(state) do
     if state.buf != "" do
-      process_line(state.buf, state)
+      _ = process_line(state.buf, %{state | pending: []})
+      %{state | buf: ""}
     else
       state
     end
@@ -160,7 +161,10 @@ defmodule ArcaneVoice.TTS.Dave do
   end
 
   defp handle_response(resp, state) do
-    [from | rest] = state.pending
+    {from, rest} = case state.pending do
+      [f | r] -> {f, r}
+      [] -> {nil, []}
+    end
 
     case resp["type"] do
       "hello" ->
