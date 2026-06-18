@@ -35,12 +35,17 @@ defmodule ArcaneVoice.TTS.Audio do
         {_output, 0} ->
           pcm = File.read!(pcm_path)
           pcm_size = byte_size(pcm)
-          non_zero = if pcm_size >= 2000 do
+          non_zero_start = if pcm_size >= 2000 do
             pcm |> binary_part(0, 2000) |> :binary.bin_to_list() |> Enum.count(&(&1 != 0))
-          else
-            0
-          end
-          Logger.info("Audio: PCM generated (#{pcm_size} bytes, first 2000 have #{non_zero} non-zero bytes)")
+          else 0 end
+          non_zero_mid = if pcm_size >= 48000 do
+            mid = div(pcm_size, 2) - 1000
+            pcm |> binary_part(mid, 2000) |> :binary.bin_to_list() |> Enum.count(&(&1 != 0))
+          else 0 end
+          non_zero_end = if pcm_size >= 2000 do
+            pcm |> binary_part(pcm_size - 2000, 2000) |> :binary.bin_to_list() |> Enum.count(&(&1 != 0))
+          else 0 end
+          Logger.info("Audio: PCM generated (#{pcm_size} bytes, non-zero: start=#{non_zero_start} mid=#{non_zero_mid} end=#{non_zero_end})")
           ArcaneVoice.Debug.set(:mp3, mp3_path)
           ArcaneVoice.Debug.set(:pcm, pcm_path)
           {:ok, pcm}

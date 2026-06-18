@@ -17,8 +17,15 @@ defmodule ArcaneVoice.TTS.Opus do
     File.write!(tmp_in, pcm_data)
 
     pcm_size = byte_size(pcm_data)
-    non_zero = pcm_data |> binary_part(0, min(pcm_size, 1000)) |> :binary.bin_to_list() |> Enum.count(&(&1 != 0))
-    Logger.info("Opus: PCM input #{pcm_size} bytes, first 1000 have #{non_zero} non-zero bytes")
+    chk = fn offset ->
+      if pcm_size >= offset + 1000 do
+        pcm_data |> binary_part(offset, 1000) |> :binary.bin_to_list() |> Enum.count(&(&1 != 0))
+      else 0 end
+    end
+    nz_start = chk.(0)
+    nz_mid = if pcm_size >= 48000, do: chk.(div(pcm_size, 2) - 500), else: 0
+    nz_end = if pcm_size >= 2000, do: chk.(pcm_size - 1000), else: 0
+    Logger.info("Opus: PCM input #{pcm_size} bytes, non-zero: start=#{nz_start} mid=#{nz_mid} end=#{nz_end}")
 
     args = [
       "-f", "s16le",

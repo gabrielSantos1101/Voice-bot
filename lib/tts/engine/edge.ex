@@ -31,6 +31,7 @@ defmodule ArcaneVoice.TTS.Engine.Edge do
     case System.cmd("edge-tts", args, stderr_to_stdout: true) do
       {_, 0} ->
         mp3 = File.read!(out_path)
+        Logger.info("EdgeTTS: produced MP3 #{byte_size(mp3)} bytes")
         File.rm(out_path)
         Audio.to_pcm(mp3, "mp3")
 
