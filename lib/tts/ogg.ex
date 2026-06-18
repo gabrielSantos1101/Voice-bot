@@ -51,7 +51,7 @@ defmodule ArcaneVoice.TTS.Ogg do
   defp process_page({_header_type, _granule, lengths, data}, %__MODULE__{} = acc) do
     {packets, pending} = group_into_packets(lengths, data, acc.pending)
     audio_packets = Enum.reject(packets, &String.starts_with?(&1, "OpusTags"))
-    Logger.debug("Ogg: page #{length(lengths)} segs → #{length(audio_packets)} pkts, pending=#{byte_size(pending)}b")
+    Logger.info("Ogg: page #{length(lengths)} segs → #{length(audio_packets)} pkts, pending=#{byte_size(pending)}b")
     %{acc | packets: audio_packets ++ acc.packets, pending: pending}
   end
 

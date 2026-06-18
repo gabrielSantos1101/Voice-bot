@@ -16,6 +16,10 @@ defmodule ArcaneVoice.TTS.Opus do
     tmp_out = Path.join(@debug_dir, "last.opus")
     File.write!(tmp_in, pcm_data)
 
+    pcm_size = byte_size(pcm_data)
+    non_zero = pcm_data |> binary_part(0, min(pcm_size, 1000)) |> :binary.bin_to_list() |> Enum.count(&(&1 != 0))
+    Logger.info("Opus: PCM input #{pcm_size} bytes, first 1000 have #{non_zero} non-zero bytes")
+
     args = [
       "-f", "s16le",
       "-ar", "#{@sample_rate}",
@@ -40,8 +44,10 @@ defmodule ArcaneVoice.TTS.Opus do
 
           case Ogg.parse(ogg_data) do
             {:ok, frames} ->
-              frame_sizes = frames |> Enum.take(5) |> Enum.map(&byte_size/1) |> inspect()
-              Logger.info("Opus: parsed #{length(frames)} frames, first 5 sizes: #{frame_sizes}")
+              first_5 = Enum.take(frames, 5)
+              frame_sizes = first_5 |> Enum.map(&byte_size/1) |> inspect()
+              frame_bytes = first_5 |> Enum.map(fn f -> if byte_size(f) >= 4, do: Base.encode16(binary_part(f, 0, 4)), else: Base.encode16(f) end) |> inspect()
+              Logger.info("Opus: parsed #{length(frames)} frames, first 5 sizes: #{frame_sizes}, hex: #{frame_bytes}")
               timestamps = build_timestamps(length(frames))
               {:ok, Enum.zip(timestamps, frames)}
 
