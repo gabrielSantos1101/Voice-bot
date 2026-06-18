@@ -1,6 +1,6 @@
 defmodule ArcaneVoice.TTS.Dave do
   @moduledoc """
-  Manages a long-running Python `sorrydave` process for DAVE MLS handshakes.
+  Manages a long-running Python `davey` process for DAVE MLS handshakes.
 
   Communication uses a JSON-line protocol over stdin/stdout.
   """
@@ -13,32 +13,28 @@ defmodule ArcaneVoice.TTS.Dave do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  def init_session(guild_id, user_id) do
-    GenServer.call(__MODULE__, {:init, guild_id, user_id}, 30_000)
+  def init_session(guild_id, user_id, channel_id) do
+    GenServer.call(__MODULE__, {:init, guild_id, user_id, channel_id}, 30_000)
   end
 
-  def prepare_epoch(guild_id, epoch \\ 1) do
-    GenServer.call(__MODULE__, {:prepare_epoch, guild_id, epoch}, 30_000)
+  def get_serialized_key_package(guild_id) do
+    GenServer.call(__MODULE__, {:get_serialized_key_package, guild_id}, 30_000)
   end
 
-  def handle_external_sender(guild_id, payload, seq \\ 0) do
-    GenServer.call(__MODULE__, {:handle_external_sender, guild_id, payload, seq}, 30_000)
+  def set_external_sender(guild_id, payload) do
+    GenServer.call(__MODULE__, {:set_external_sender, guild_id, payload}, 30_000)
   end
 
-  def handle_proposals(guild_id, payload, seq \\ 0) do
-    GenServer.call(__MODULE__, {:handle_proposals, guild_id, payload, seq}, 30_000)
+  def process_proposals(guild_id, optype, payload) do
+    GenServer.call(__MODULE__, {:process_proposals, guild_id, optype, payload}, 30_000)
   end
 
-  def handle_commit(guild_id, transition_id, payload) do
-    GenServer.call(__MODULE__, {:handle_commit, guild_id, transition_id, payload}, 30_000)
+  def process_commit(guild_id, payload) do
+    GenServer.call(__MODULE__, {:process_commit, guild_id, payload}, 30_000)
   end
 
-  def handle_welcome(guild_id, transition_id, payload) do
-    GenServer.call(__MODULE__, {:handle_welcome, guild_id, transition_id, payload}, 30_000)
-  end
-
-  def execute_transition(guild_id, transition_id) do
-    GenServer.call(__MODULE__, {:execute_transition, guild_id, transition_id}, 30_000)
+  def process_welcome(guild_id, payload) do
+    GenServer.call(__MODULE__, {:process_welcome, guild_id, payload}, 30_000)
   end
 
   def handshake_done?(guild_id) do
@@ -49,8 +45,8 @@ defmodule ArcaneVoice.TTS.Dave do
     GenServer.cast(__MODULE__, {:close, guild_id})
   end
 
-  def encrypt_frame(guild_id, frame, codec \\ "OPUS") do
-    GenServer.call(__MODULE__, {:encrypt_frame, guild_id, frame, codec}, 10_000)
+  def encrypt_opus(guild_id, frame) do
+    GenServer.call(__MODULE__, {:encrypt_opus, guild_id, frame}, 10_000)
   end
 
   @impl true
@@ -61,54 +57,40 @@ defmodule ArcaneVoice.TTS.Dave do
       [:binary, :exit_status]
     )
     Logger.info("Dave: Python process started (#{script})")
-    {:ok, %{port: port, pending: [], sessions: %{}, buf: ""}}
+    {:ok, %{port: port, pending: [], buf: ""}}
   end
 
   @impl true
-  def handle_call({:init, guild_id, user_id}, from, state) do
-    {:noreply, queue_cmd(%{cmd: "init", guild_id: guild_id, user_id: user_id}, from, state)}
+  def handle_call({:init, guild_id, user_id, channel_id}, from, state) do
+    {:noreply, queue_cmd(%{cmd: "init", guild_id: guild_id, user_id: user_id, channel_id: channel_id}, from, state)}
   end
 
-  def handle_call({:prepare_epoch, guild_id, epoch}, from, state) do
-    {:noreply, queue_cmd(%{cmd: "prepare_epoch", guild_id: guild_id, epoch: epoch}, from, state)}
+  def handle_call({:get_serialized_key_package, guild_id}, from, state) do
+    {:noreply, queue_cmd(%{cmd: "get_serialized_key_package", guild_id: guild_id}, from, state)}
   end
 
-  def handle_call({:handle_external_sender, guild_id, payload, seq}, from, state) do
-    {:noreply,
-     queue_cmd(
-       %{cmd: "handle_external_sender", guild_id: guild_id, payload: Base.encode64(payload), seq: seq},
-       from,
-       state
-     )}
+  def handle_call({:set_external_sender, guild_id, payload}, from, state) do
+    {:noreply, queue_cmd(%{cmd: "set_external_sender", guild_id: guild_id, payload: Base.encode64(payload)}, from, state)}
   end
 
-  def handle_call({:handle_proposals, guild_id, payload, seq}, from, state) do
-    {:noreply,
-     queue_cmd(
-       %{cmd: "handle_proposals", guild_id: guild_id, payload: Base.encode64(payload), seq: seq},
-       from,
-       state
-     )}
+  def handle_call({:process_proposals, guild_id, optype, payload}, from, state) do
+    {:noreply, queue_cmd(%{cmd: "process_proposals", guild_id: guild_id, optype: optype, payload: Base.encode64(payload)}, from, state)}
   end
 
-  def handle_call({:handle_commit, guild_id, transition_id, payload}, from, state) do
-    {:noreply, queue_cmd(%{cmd: "handle_commit", guild_id: guild_id, transition_id: transition_id, payload: Base.encode64(payload)}, from, state)}
+  def handle_call({:process_commit, guild_id, payload}, from, state) do
+    {:noreply, queue_cmd(%{cmd: "process_commit", guild_id: guild_id, payload: Base.encode64(payload)}, from, state)}
   end
 
-  def handle_call({:handle_welcome, guild_id, transition_id, payload}, from, state) do
-    {:noreply, queue_cmd(%{cmd: "handle_welcome", guild_id: guild_id, transition_id: transition_id, payload: Base.encode64(payload)}, from, state)}
-  end
-
-  def handle_call({:execute_transition, guild_id, transition_id}, from, state) do
-    {:noreply, queue_cmd(%{cmd: "execute_transition", guild_id: guild_id, transition_id: transition_id}, from, state)}
+  def handle_call({:process_welcome, guild_id, payload}, from, state) do
+    {:noreply, queue_cmd(%{cmd: "process_welcome", guild_id: guild_id, payload: Base.encode64(payload)}, from, state)}
   end
 
   def handle_call({:handshake_done, guild_id}, from, state) do
     {:noreply, queue_cmd(%{cmd: "handshake_done", guild_id: guild_id}, from, state)}
   end
 
-  def handle_call({:encrypt_frame, guild_id, frame, codec}, from, state) do
-    {:noreply, queue_cmd(%{cmd: "get_encryptor", guild_id: guild_id, frame: Base.encode64(frame), codec: codec}, from, state)}
+  def handle_call({:encrypt_opus, guild_id, frame}, from, state) do
+    {:noreply, queue_cmd(%{cmd: "encrypt_opus", guild_id: guild_id, frame: Base.encode64(frame)}, from, state)}
   end
 
   @impl true
@@ -118,7 +100,6 @@ defmodule ArcaneVoice.TTS.Dave do
 
   @impl true
   def handle_info({port, {:exit_status, status}}, %{port: port} = state) do
-    # flush remaining buffer
     state = drain_buf(%{state | port: nil})
     Logger.error("Dave: Python process exited with status #{status}")
     {:stop, {:dave_crashed, status}, state}
@@ -178,8 +159,8 @@ defmodule ArcaneVoice.TTS.Dave do
 
     case resp["type"] do
       "hello" ->
-        Logger.info("Dave: Python ready, sorrydave=#{resp["have_sorrydave"]}")
-        if from, do: GenServer.reply(from, {:ok, resp["have_sorrydave"]})
+        Logger.info("Dave: Python ready, davey=#{resp["have_davey"]}")
+        if from, do: GenServer.reply(from, {:ok, resp["have_davey"]})
         %{state | pending: rest}
 
       "ok" ->
@@ -190,7 +171,7 @@ defmodule ArcaneVoice.TTS.Dave do
         gid = resp["guild_id"]
         Logger.info("Dave: guild #{gid} handshake ready")
         if from, do: GenServer.reply(from, {:ok, :ready})
-        %{state | pending: rest, sessions: Map.put(state.sessions, gid, :ready)}
+        %{state | pending: rest}
 
       "not_ready" ->
         if from, do: GenServer.reply(from, {:ok, false})
@@ -198,12 +179,7 @@ defmodule ArcaneVoice.TTS.Dave do
 
       "response" ->
         payload = Base.decode64!(resp["payload"])
-        if debug = resp["debug"] do
-          Logger.info(
-            "Dave: response opcode=#{resp["opcode"]} raw=#{debug["raw_size"]}b/#{debug["raw_head"]} " <>
-              "payload=#{debug["payload_size"]}b/#{debug["payload_head"]}"
-          )
-        end
+        Logger.info("Dave: response opcode=#{resp["opcode"]} size=#{resp["size"] || byte_size(payload)}b")
         if from, do: GenServer.reply(from, {:ok, %{opcode: resp["opcode"], payload: payload}})
         %{state | pending: rest}
 

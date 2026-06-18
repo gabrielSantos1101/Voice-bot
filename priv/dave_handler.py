@@ -4,131 +4,90 @@ import base64
 import traceback
 
 try:
-    from sorrydave import DaveSession
-    HAVE_SORRYDAVE = True
+    from davey import DaveSession, ProposalsOperationType, CommitWelcome
+    HAVE_DAVEY = True
 except ImportError:
-    HAVE_SORRYDAVE = False
+    HAVE_DAVEY = False
 
 sessions = {}
-handlers = {}
-
-
-def discord_payload(packet, expected_opcode):
-    if len(packet) >= 3 and packet[2] == expected_opcode:
-        return packet[3:]
-    if len(packet) >= 1 and packet[0] == expected_opcode:
-        return packet[1:]
-    return packet
-
-
-def packet_debug(raw, payload):
-    return {
-        "raw_size": len(raw),
-        "raw_head": raw[:8].hex(),
-        "payload_size": len(payload),
-        "payload_head": payload[:8].hex(),
-    }
-
-
-def dave_packet(data, opcode, payload):
-    seq = int(data.get("seq", 0)) & 0xFFFF
-    return seq.to_bytes(2, "big") + bytes([opcode]) + payload
 
 
 def cmd_init(data):
     gid = data["guild_id"]
     uid = data["user_id"]
-    sessions[gid] = DaveSession(local_user_id=uid)
+    cid = data["channel_id"]
+    sessions[gid] = DaveSession(1, uid, cid)
     return {"type": "ok"}
 
 
-def cmd_prepare_epoch(data):
+def cmd_get_serialized_key_package(data):
     gid = data["guild_id"]
-    epoch = data.get("epoch", 1)
     session = sessions[gid]
-    key_package = session.prepare_epoch(epoch)
-    payload = discord_payload(key_package, 26)
-    payload_b64 = base64.b64encode(payload).decode()
+    key_package = session.get_serialized_key_package()
     return {
         "type": "response",
         "guild_id": gid,
         "opcode": 26,
-        "payload": payload_b64,
-        "debug": packet_debug(key_package, payload),
+        "payload": base64.b64encode(key_package).decode(),
+        "size": len(key_package),
     }
 
 
-def cmd_handle_external_sender(data):
+def cmd_set_external_sender(data):
     gid = data["guild_id"]
     payload = base64.b64decode(data["payload"])
-    session = sessions[gid]
-    session.handle_external_sender_package(dave_packet(data, 25, payload))
+    sessions[gid].set_external_sender(payload)
     return {"type": "ok"}
 
 
-def cmd_handle_proposals(data):
+def cmd_process_proposals(data):
     gid = data["guild_id"]
-    payload = base64.b64decode(data["payload"])
+    optype = data["optype"]
+    proposals = base64.b64decode(data["payload"])
     session = sessions[gid]
-    result = session.handle_proposals(dave_packet(data, 27, payload))
+    result = session.process_proposals(ProposalsOperationType(optype), proposals)
     if result:
-        payload = discord_payload(result, 28)
-        payload_b64 = base64.b64encode(payload).decode()
+        payload = result.commit
+        if result.welcome:
+            payload = payload + result.welcome
         return {
             "type": "response",
             "guild_id": gid,
             "opcode": 28,
-            "payload": payload_b64,
-            "debug": packet_debug(result, payload),
+            "payload": base64.b64encode(payload).decode(),
         }
     return {"type": "ok"}
 
 
-def cmd_handle_commit(data):
+def cmd_process_commit(data):
     gid = data["guild_id"]
-    transition_id = data["transition_id"]
-    payload = base64.b64decode(data["payload"])
-    session = sessions[gid]
-    session.handle_commit(transition_id, payload)
+    commit = base64.b64decode(data["payload"])
+    sessions[gid].process_commit(commit)
     return {"type": "ok"}
 
 
-def cmd_handle_welcome(data):
+def cmd_process_welcome(data):
     gid = data["guild_id"]
-    transition_id = data["transition_id"]
-    payload = base64.b64decode(data["payload"])
-    session = sessions[gid]
-    session.handle_welcome(transition_id, payload)
+    welcome = base64.b64decode(data["payload"])
+    sessions[gid].process_welcome(welcome)
     return {"type": "ok"}
-
-
-def cmd_execute_transition(data):
-    gid = data["guild_id"]
-    transition_id = data["transition_id"]
-    session = sessions[gid]
-    session.execute_transition(transition_id)
-    return {"type": "ok"}
-
-
-def cmd_get_encryptor(data):
-    gid = data["guild_id"]
-    session = sessions[gid]
-    enc = session.get_encryptor()
-    codec = data.get("codec", "OPUS")
-    frame = base64.b64decode(data["frame"])
-    encrypted = enc.encrypt(frame, codec=codec)
-    payload_b64 = base64.b64encode(encrypted).decode()
-    return {"type": "response", "guild_id": gid, "payload": payload_b64}
 
 
 def cmd_handshake_done(data):
     gid = data["guild_id"]
     session = sessions[gid]
-    try:
-        session.get_encryptor()
-        return {"type": "ready", "guild_id": gid}
-    except Exception:
-        return {"type": "not_ready", "guild_id": gid}
+    return {"type": "ready" if session.ready else "not_ready", "guild_id": gid}
+
+
+def cmd_encrypt_opus(data):
+    gid = data["guild_id"]
+    frame = base64.b64decode(data["frame"])
+    encrypted = sessions[gid].encrypt_opus(frame)
+    return {
+        "type": "response",
+        "guild_id": gid,
+        "payload": base64.b64encode(encrypted).decode(),
+    }
 
 
 def cmd_close(data):
@@ -137,18 +96,19 @@ def cmd_close(data):
     return {"type": "ok"}
 
 
-handlers["init"] = cmd_init
-handlers["prepare_epoch"] = cmd_prepare_epoch
-handlers["handle_external_sender"] = cmd_handle_external_sender
-handlers["handle_proposals"] = cmd_handle_proposals
-handlers["handle_commit"] = cmd_handle_commit
-handlers["handle_welcome"] = cmd_handle_welcome
-handlers["execute_transition"] = cmd_execute_transition
-handlers["get_encryptor"] = cmd_get_encryptor
-handlers["handshake_done"] = cmd_handshake_done
-handlers["close"] = cmd_close
+handlers = {
+    "init": cmd_init,
+    "get_serialized_key_package": cmd_get_serialized_key_package,
+    "set_external_sender": cmd_set_external_sender,
+    "process_proposals": cmd_process_proposals,
+    "process_commit": cmd_process_commit,
+    "process_welcome": cmd_process_welcome,
+    "handshake_done": cmd_handshake_done,
+    "encrypt_opus": cmd_encrypt_opus,
+    "close": cmd_close,
+}
 
-HELLO = json.dumps({"type": "hello", "have_sorrydave": HAVE_SORRYDAVE})
+HELLO = json.dumps({"type": "hello", "have_davey": HAVE_DAVEY})
 sys.stdout.write(HELLO + "\n")
 sys.stdout.flush()
 
@@ -158,20 +118,33 @@ for line in sys.stdin:
         continue
     try:
         cmd = json.loads(line)
-        if not HAVE_SORRYDAVE and cmd.get("cmd") != "close":
-            resp = {"type": "error", "guild_id": cmd.get("guild_id"), "message": "sorrydave not installed"}
+        if not HAVE_DAVEY and cmd.get("cmd") != "close":
+            resp = {
+                "type": "error",
+                "guild_id": cmd.get("guild_id"),
+                "message": "davey not installed",
+            }
         else:
             handler = handlers.get(cmd.get("cmd"))
             if handler:
                 resp = handler(cmd)
             else:
-                resp = {"type": "error", "guild_id": cmd.get("guild_id"), "message": f"unknown cmd: {cmd.get('cmd')}"}
+                resp = {
+                    "type": "error",
+                    "guild_id": cmd.get("guild_id"),
+                    "message": f"unknown cmd: {cmd.get('cmd')}",
+                }
     except Exception as e:
         gid = None
         try:
             gid = cmd.get("guild_id")
         except Exception:
             pass
-        resp = {"type": "error", "guild_id": gid, "message": str(e), "traceback": traceback.format_exc()}
+        resp = {
+            "type": "error",
+            "guild_id": gid,
+            "message": str(e),
+            "traceback": traceback.format_exc(),
+        }
     sys.stdout.write(json.dumps(resp) + "\n")
     sys.stdout.flush()

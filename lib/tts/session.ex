@@ -34,7 +34,7 @@ defmodule ArcaneVoice.TTS.Session do
     discovered_ip discovered_port interaction_token
     voice_ip voice_port tts_pid timeout_timer
     dave_ready dave_initialized dave_active
-    dave_key_package_sent first_sent
+    first_sent
     encoding_task stream_after_encode
   ]a
 
@@ -156,6 +156,17 @@ defmodule ArcaneVoice.TTS.Session do
     Logger.info("Session: got session description, mode=#{mode}, key_size=#{byte_size(secret_key)}, dave_ver=#{dave_ver}")
     state = %{state | encryption_mode: mode, secret_key: secret_key, dave_active: dave_ver > 0}
 
+    if dave_ver > 0 do
+      state = ensure_dave_initialized(state)
+      case ArcaneVoice.TTS.Dave.get_serialized_key_package(state.guild_id) do
+        {:ok, %{opcode: 26, payload: key_package}} ->
+          Logger.info("Session: DAVE sending key_package (#{byte_size(key_package)}b)")
+          send(state.voice_ws_pid, {:send_dave_binary, 26, key_package})
+        other ->
+          Logger.warning("Session: Dave get_key_package: #{inspect(other)}")
+      end
+    end
+
     if state.dave_ready || !state.dave_active do
       Logger.info("Session: #{if state.dave_ready, do: "DAVE ready, ", else: "no DAVE, "}starting TTS encoding")
       send(self(), :encode_and_stream)
@@ -169,39 +180,29 @@ defmodule ArcaneVoice.TTS.Session do
 
   # ── DAVE Handlers ──
 
-  def handle_info({:dave_prepare_epoch, epoch}, state) do
-    Logger.info("Session: DAVE prepare_epoch epoch=#{epoch}")
-    {:noreply, prepare_dave_epoch(state, epoch)}
-  end
-
-  def handle_info({:dave_frame, 25, seq, payload}, state) do
+  def handle_info({:dave_frame, 25, _seq, payload}, state) do
     Logger.info("Session: DAVE external_sender_package (#{byte_size(payload)}b)")
-    state = ensure_dave_initialized(state)
-    _ = ArcaneVoice.TTS.Dave.handle_external_sender(state.guild_id, payload, dave_seq(seq))
-    state = prepare_dave_epoch(state, 1)
+    _ = ArcaneVoice.TTS.Dave.set_external_sender(state.guild_id, payload)
     {:noreply, state}
   end
 
-  def handle_info({:dave_frame, 27, seq, payload}, state) do
-    Logger.info("Session: DAVE proposals (#{byte_size(payload)}b)")
-    state = ensure_dave_initialized(state)
-
-    case ArcaneVoice.TTS.Dave.handle_proposals(state.guild_id, payload, dave_seq(seq)) do
+  def handle_info({:dave_frame, 27, _seq, payload}, state) do
+    <<optype::8, proposals::binary>> = payload
+    Logger.info("Session: DAVE proposals optype=#{optype} (#{byte_size(proposals)}b)")
+    case ArcaneVoice.TTS.Dave.process_proposals(state.guild_id, optype, proposals) do
       {:ok, %{opcode: 28, payload: commit_welcome}} ->
         Logger.info("Session: DAVE sending commit_welcome (#{byte_size(commit_welcome)}b)")
         send(state.voice_ws_pid, {:send_dave_binary, 28, commit_welcome})
-
       _ ->
         :ok
     end
-
     {:noreply, state}
   end
 
   def handle_info({:dave_frame, 29, _seq, payload}, state) do
     <<transition_id::32, commit::binary>> = payload
     Logger.info("Session: DAVE announce_commit id=#{transition_id} (#{byte_size(commit)}b)")
-    _ = ArcaneVoice.TTS.Dave.handle_commit(state.guild_id, transition_id, commit)
+    _ = ArcaneVoice.TTS.Dave.process_commit(state.guild_id, commit)
     if state.voice_ws_pid do
       Logger.info("Session: DAVE sending transition ready (op 23)")
       send(state.voice_ws_pid, {:send_transition_ready, transition_id})
@@ -212,7 +213,7 @@ defmodule ArcaneVoice.TTS.Session do
   def handle_info({:dave_frame, 30, _seq, payload}, state) do
     <<transition_id::32, welcome::binary>> = payload
     Logger.info("Session: DAVE welcome id=#{transition_id} (#{byte_size(welcome)}b)")
-    _ = ArcaneVoice.TTS.Dave.handle_welcome(state.guild_id, transition_id, welcome)
+    _ = ArcaneVoice.TTS.Dave.process_welcome(state.guild_id, welcome)
     if state.voice_ws_pid do
       Logger.info("Session: DAVE sending transition ready (op 23)")
       send(state.voice_ws_pid, {:send_transition_ready, transition_id})
@@ -227,7 +228,6 @@ defmodule ArcaneVoice.TTS.Session do
 
   def handle_info({:dave_execute_transition, transition_id}, state) do
     Logger.info("Session: DAVE execute_transition id=#{transition_id}")
-    _ = ArcaneVoice.TTS.Dave.execute_transition(state.guild_id, transition_id)
     state = %{state | dave_ready: true}
 
     if state.secret_key do
@@ -245,8 +245,9 @@ defmodule ArcaneVoice.TTS.Session do
       state
     else
       user_id = String.to_integer(state.bot_user_id)
+      channel_id = String.to_integer(state.channel_id)
 
-      case ArcaneVoice.TTS.Dave.init_session(state.guild_id, user_id) do
+      case ArcaneVoice.TTS.Dave.init_session(state.guild_id, user_id, channel_id) do
         :ok -> :ok
         {:ok, _} -> :ok
         other -> Logger.warning("Session: Dave init: #{inspect(other)}")
@@ -255,29 +256,6 @@ defmodule ArcaneVoice.TTS.Session do
       %{state | dave_initialized: true}
     end
   end
-
-  defp prepare_dave_epoch(state, epoch) do
-    state = ensure_dave_initialized(state)
-
-    if state.dave_key_package_sent do
-      Logger.debug("Session: DAVE key_package already sent, skipping epoch=#{epoch}")
-      state
-    else
-      case ArcaneVoice.TTS.Dave.prepare_epoch(state.guild_id, epoch) do
-        {:ok, %{opcode: 26, payload: key_package}} ->
-          Logger.info("Session: DAVE sending key_package (#{byte_size(key_package)}b)")
-          send(state.voice_ws_pid, {:send_dave_binary, 26, key_package})
-          %{state | dave_key_package_sent: true}
-
-        other ->
-          Logger.warning("Session: Dave prepare_epoch: #{inspect(other)}")
-          state
-      end
-    end
-  end
-
-  defp dave_seq(seq) when is_integer(seq), do: seq
-  defp dave_seq(_), do: 0
 
   # ── Streaming ──
 
@@ -536,7 +514,7 @@ defmodule ArcaneVoice.TTS.Session do
 
     packet = cond do
       state.dave_active && state.dave_ready ->
-        case ArcaneVoice.TTS.Dave.encrypt_frame(state.guild_id, opus_frame, "OPUS") do
+        case ArcaneVoice.TTS.Dave.encrypt_opus(state.guild_id, opus_frame) do
           {:ok, %{payload: encrypted}} ->
             Logger.debug("Session: DAVE encrypt produced #{byte_size(encrypted)}b frame")
             cipher = @cipher_map[state.encryption_mode] || :aes_256_gcm
