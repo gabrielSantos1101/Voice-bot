@@ -319,10 +319,9 @@ defmodule ArcaneVoice.TTS.Session do
     else
       <<state.sequence::32>>
     end
-    nonce12 = <<0::64, nonce::binary>>
 
     {ciphertext, tag} = :crypto.crypto_one_time_aead(
-      cipher, state.secret_key, nonce12, opus_frame, header, true
+      cipher, state.secret_key, nonce, opus_frame, header, true
     )
 
     packet = if String.ends_with?(state.encryption_mode, "_rtpsize") do
