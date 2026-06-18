@@ -265,9 +265,10 @@ defmodule ArcaneVoice.TTS.Session do
   end
 
   defp start_streaming(state) do
+    state = %{state | frame_index: 0}
     state = send_frame(state)
     timer = Process.send_after(self(), :tick, 20)
-    %{state | stream_timer: timer, frame_index: 1,
+    %{state | stream_timer: timer, frame_index: state.frame_index + 1,
               sequence: state.sequence + 1, timestamp: state.timestamp + 960}
   end
 
