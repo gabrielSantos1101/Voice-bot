@@ -100,7 +100,7 @@ defmodule ArcaneVoice.TTS.Session do
   def handle_info({:voice_server, data}, state) do
     token = data["token"]
     endpoint_raw = data["endpoint"]
-    Logger.debug("Session: got voice_server token=#{token} endpoint=#{endpoint_raw}")
+    Logger.info("Session: got voice_server token=#{token} endpoint=#{endpoint_raw}")
 
     endpoint =
       endpoint_raw
@@ -118,7 +118,7 @@ defmodule ArcaneVoice.TTS.Session do
   end
 
   def handle_info({:voice_ready, ssrc, ip, port, modes}, state) do
-    Logger.info("Session: voice ready, ssrc=#{ssrc}")
+    Logger.info("Session: voice ready, ssrc=#{ssrc}, available_modes=#{inspect(modes)}")
 
     selected_mode = Enum.find(@encryption_modes, &(&1 in modes))
 
@@ -304,9 +304,14 @@ defmodule ArcaneVoice.TTS.Session do
       cipher, state.secret_key, nonce, opus_frame, header, true
     )
 
-    :gen_udp.send(state.udp_socket,
+    packet = header <> ciphertext <> tag <> nonce_4
+    result = :gen_udp.send(state.udp_socket,
                   to_charlist(state.voice_ip), state.voice_port,
-                  header <> ciphertext <> tag <> nonce_4)
+                  packet)
+    case result do
+      :ok -> :ok
+      {:error, reason} -> Logger.error("Session: UDP send failed: #{inspect(reason)}")
+    end
     state
   end
 
