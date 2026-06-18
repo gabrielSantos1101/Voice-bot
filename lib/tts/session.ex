@@ -277,8 +277,8 @@ defmodule ArcaneVoice.TTS.Session do
     header = <<0x80, 0x78, state.sequence::16-big, state.timestamp::32-big, state.ssrc::32-big>>
 
     cipher = @cipher_map[state.encryption_mode] || :aes_256_gcm
+    nonce = <<0::64, state.sequence::32>>
     nonce_4 = <<state.sequence::32>>
-    nonce = <<0::64, nonce_4::32>>
 
     {ciphertext, tag} = :crypto.crypto_one_time_aead(
       cipher, state.secret_key, nonce, opus_frame, header, true
