@@ -234,7 +234,6 @@ defmodule ArcaneVoice.TTS.Session do
       Logger.info("Session: DAVE ready, waiting for session description")
     end
 
-    ArcaneVoice.TTS.Dave.close(state.guild_id)
     {:noreply, state}
   end
 
@@ -404,39 +403,40 @@ defmodule ArcaneVoice.TTS.Session do
     byte1 = if marker_bit == 1, do: 0xF8, else: 0x78
     header = <<0x80, byte1, state.sequence::16-big, state.timestamp::32-big, state.ssrc::32-big>>
 
-    cipher = @cipher_map[state.encryption_mode] || :aes_256_gcm
-
-    {nonce_4byte, nonce_12byte} = if String.ends_with?(state.encryption_mode, "_rtpsize") do
-      n4 = <<state.sequence::32>>
-      {n4, <<n4::binary, 0::size(64)>>}
+    packet = if state.dave_ready do
+      case ArcaneVoice.TTS.Dave.encrypt_frame(state.guild_id, opus_frame, "OPUS") do
+        {:ok, %{payload: encrypted}} ->
+          Logger.debug("Session: DAVE encrypted frame #{byte_size(encrypted)}b")
+          header <> encrypted
+        {:error, reason} ->
+          Logger.error("Session: DAVE encrypt failed: #{inspect(reason)}")
+          nil
+      end
     else
+      cipher = @cipher_map[state.encryption_mode] || :aes_256_gcm
       n4 = <<state.sequence::32>>
-      {n4, <<n4::binary, 0::size(64)>>}
+      nonce_12byte = <<n4::binary, 0::size(64)>>
+      {ciphertext, tag} = :crypto.crypto_one_time_aead(
+        cipher, state.secret_key, nonce_12byte, opus_frame, header, true
+      )
+      pkt = if String.ends_with?(state.encryption_mode, "_rtpsize") do
+        header <> ciphertext <> tag <> n4
+      else
+        header <> ciphertext <> tag
+      end
+      if state.frame_index == 0 do
+        Logger.info("Session: FIRST legacy packet nonce=#{Base.encode16(nonce_12byte)} ct=#{byte_size(ciphertext)}")
+      end
+      pkt
     end
 
-    {ciphertext, tag} = :crypto.crypto_one_time_aead(
-      cipher, state.secret_key, nonce_12byte, opus_frame, header, true
-    )
+    if packet do
+      case :gen_udp.send(state.udp_socket, to_charlist(state.voice_ip), state.voice_port, packet) do
+        :ok -> if state.frame_index == 0, do: Logger.info("Session: first frame UDP OK")
+        {:error, reason} -> Logger.error("Session: UDP send failed: #{inspect(reason)}")
+      end
+    end
 
-    packet = if String.ends_with?(state.encryption_mode, "_rtpsize") do
-      header <> ciphertext <> tag <> nonce_4byte
-    else
-      header <> ciphertext <> tag
-    end
-    if state.frame_index == 0 do
-      Logger.info("Session: FIRST packet header=#{Base.encode16(header)} nonce=#{Base.encode16(nonce_12byte)} " <>
-        "ct_size=#{byte_size(ciphertext)} tag_size=#{byte_size(tag)} pkt_size=#{byte_size(packet)}")
-    end
-    result = :gen_udp.send(state.udp_socket,
-                  to_charlist(state.voice_ip), state.voice_port,
-                  packet)
-    case result do
-      :ok ->
-        if state.frame_index == 0 do
-          Logger.info("Session: UDP send OK (first frame)")
-        end
-      {:error, reason} -> Logger.error("Session: UDP send failed: #{inspect(reason)}")
-    end
     state
   end
 
@@ -452,5 +452,6 @@ defmodule ArcaneVoice.TTS.Session do
     if state.stream_timer, do: Process.cancel_timer(state.stream_timer)
     if state.udp_socket, do: :gen_udp.close(state.udp_socket)
     if state.voice_ws_pid, do: send(state.voice_ws_pid, :disconnect)
+    if state.dave_ready, do: ArcaneVoice.TTS.Dave.close(state.guild_id)
   end
 end
