@@ -2,7 +2,7 @@ defmodule ArcaneVoice.TTS.Session do
   @moduledoc false
 
   # BUILD_ID: 7264d85-fix-otp27-order (OTP27 swaps arg4/arg5 in /6 API)
-  @build_id "2026-06-18-otp27-order-fix"
+  @build_id "2026-06-18-otp27-v3-decrypt-fix"
 
   require Logger
 
@@ -484,15 +484,16 @@ defmodule ArcaneVoice.TTS.Session do
         )
         Logger.info("Session: encrypt RESULT ct=#{byte_size(ciphertext)}b tag=#{byte_size(tag)}b")
 
-        # OTP 27: /5 with tuple for decrypt (AAD, {Ct, Tag})
+        # OTP27 /6: (Cipher, Key, IV, Data, AAD/Tag, Flag/Tag)
+        # Encrypt: Data=PlainText, 5th=AAD, 6th=true → {Ct, Tag}
+        # Decrypt: Data=CipherText, 5th=AAD, 6th=Tag → {ok, PlainText}
         try do
           {:ok, decrypted} = :crypto.crypto_one_time_aead(
-            cipher, state.secret_key, nonce_12byte, header, {ciphertext, tag}
+            cipher, state.secret_key, nonce_12byte, ciphertext, header, tag
           )
           if decrypted != opus_frame do
             Logger.warning("Session: encrypt VERIFY MISMATCH ct=#{byte_size(ciphertext)}b " <>
-              "got=#{byte_size(decrypted)}b expected=#{byte_size(opus_frame)}b " <>
-              "aad=#{byte_size(header)}b pt=#{byte_size(opus_frame)}b")
+              "got=#{byte_size(decrypted)}b expected=#{byte_size(opus_frame)}b")
           end
         rescue
           e -> Logger.error("Session: encrypt VERIFY ERROR: #{inspect(e)}")
