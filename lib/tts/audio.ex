@@ -18,34 +18,38 @@ defmodule ArcaneVoice.TTS.Audio do
     File.write!(mp3_path, audio_data)
     Logger.info("Audio: saved MP3 to #{mp3_path} (#{byte_size(audio_data)} bytes)")
 
+    pcm_path = Path.join(@debug_dir, "last.pcm")
     args = [
       "-i", mp3_path,
       "-f", "s16le",
-      "-acodec", "pcm_s16le",
       "-ar", "48000",
       "-ac", "1",
-      "-af", "volume=2.0",
-      "-loglevel", "error",
-      "-"
+      "-y",
+      "-loglevel", "debug",
+      pcm_path
     ]
 
     result =
       case System.cmd("ffmpeg", args, stderr_to_stdout: true) do
-        {pcm, 0} ->
-          pcm_size = byte_size(pcm)
-          non_zero = if pcm_size >= 1000 do
-            pcm |> binary_part(0, 1000) |> :binary.bin_to_list() |> Enum.count(&(&1 != 0))
+        {output, 0} ->
+          if File.exists?(pcm_path) do
+            pcm = File.read!(pcm_path)
+            pcm_size = byte_size(pcm)
+            non_zero = if pcm_size >= 2000 do
+              pcm |> binary_part(0, 2000) |> :binary.bin_to_list() |> Enum.count(&(&1 != 0))
+            else
+              0
+            end
+            Logger.info("Audio: PCM generated (#{pcm_size} bytes, first 2000 have #{non_zero} non-zero bytes)")
+            Logger.info("Audio: ffmpeg log: #{String.slice(output, -2000, 2000)}")
+            ArcaneVoice.Debug.set(:mp3, mp3_path)
+            ArcaneVoice.Debug.set(:pcm, pcm_path)
+            {:ok, pcm}
           else
-            0
+            {:error, "ffmpeg didn't produce PCM file: #{output}"}
           end
-          Logger.info("Audio: PCM generated (#{pcm_size} bytes, first 1000 have #{non_zero} non-zero bytes)")
-          pcm_path = Path.join(@debug_dir, "last.pcm")
-          File.write!(pcm_path, pcm)
-          ArcaneVoice.Debug.set(:mp3, mp3_path)
-          ArcaneVoice.Debug.set(:pcm, pcm_path)
-          {:ok, pcm}
         {output, exit_code} ->
-          {:error, "ffmpeg failed (exit #{exit_code}): #{output}"}
+          {:error, "ffmpeg failed (exit #{exit_code}): #{String.slice(output, -2000, 2000)}"}
       end
 
     result
