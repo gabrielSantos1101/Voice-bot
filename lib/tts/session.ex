@@ -169,19 +169,19 @@ defmodule ArcaneVoice.TTS.Session do
 
   def handle_info({:dave_prepare_epoch, epoch}, state) do
     Logger.info("Session: DAVE prepare_epoch epoch=#{epoch}")
-    {:noreply, init_dave(state, epoch)}
+    {:noreply, prepare_dave_epoch(state, epoch)}
   end
 
   def handle_info({:dave_frame, 25, _seq, payload}, state) do
     Logger.info("Session: DAVE external_sender_package (#{byte_size(payload)}b)")
-    state = init_dave_if_needed(state)
+    state = ensure_dave_initialized(state)
     _ = ArcaneVoice.TTS.Dave.handle_external_sender(state.guild_id, payload)
     {:noreply, state}
   end
 
   def handle_info({:dave_frame, 27, _seq, payload}, state) do
     Logger.info("Session: DAVE proposals (#{byte_size(payload)}b)")
-    state = init_dave_if_needed(state)
+    state = ensure_dave_initialized(state)
 
     case ArcaneVoice.TTS.Dave.handle_proposals(state.guild_id, payload) do
       {:ok, %{opcode: 28, payload: commit_welcome}} ->
@@ -237,22 +237,24 @@ defmodule ArcaneVoice.TTS.Session do
     {:noreply, state}
   end
 
-  defp init_dave_if_needed(state) do
+  defp ensure_dave_initialized(state) do
     if state.dave_initialized do
       state
     else
-      init_dave(state)
+      user_id = String.to_integer(state.bot_user_id)
+
+      case ArcaneVoice.TTS.Dave.init_session(state.guild_id, user_id) do
+        :ok -> :ok
+        {:ok, _} -> :ok
+        other -> Logger.warning("Session: Dave init: #{inspect(other)}")
+      end
+
+      %{state | dave_initialized: true}
     end
   end
 
-  defp init_dave(state, epoch \\ 1) do
-    user_id = String.to_integer(state.bot_user_id)
-
-    case ArcaneVoice.TTS.Dave.init_session(state.guild_id, user_id) do
-      :ok -> :ok
-      {:ok, _} -> :ok
-      other -> Logger.warning("Session: Dave init: #{inspect(other)}")
-    end
+  defp prepare_dave_epoch(state, epoch) do
+    state = ensure_dave_initialized(state)
 
     case ArcaneVoice.TTS.Dave.prepare_epoch(state.guild_id, epoch) do
       {:ok, %{opcode: 26, payload: key_package}} ->
@@ -263,7 +265,7 @@ defmodule ArcaneVoice.TTS.Session do
         Logger.warning("Session: Dave prepare_epoch: #{inspect(other)}")
     end
 
-    %{state | dave_initialized: true}
+    state
   end
 
   # ── Streaming ──
