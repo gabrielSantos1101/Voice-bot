@@ -25,7 +25,7 @@ defmodule ArcaneVoice.TTS.Session do
     audio_frames frame_index stream_timer
     discovered_ip discovered_port interaction_token
     voice_ip voice_port tts_pid timeout_timer
-    dave_ready dave_initialized
+    dave_ready dave_initialized dave_active
   ]a
 
   def start_link(opts) do
@@ -121,7 +121,7 @@ defmodule ArcaneVoice.TTS.Session do
 
   def handle_info({:voice_ready, ssrc, ip, port, modes, dave_ver}, state) do
     Logger.info("Session: voice ready, ssrc=#{ssrc}, dave_version=#{dave_ver}, modes=#{inspect(modes)}")
-    state = if dave_ver > 0, do: state, else: %{state | dave_ready: true}
+    state = %{state | dave_active: dave_ver > 0}
 
     selected_mode = Enum.find(@encryption_modes, &(&1 in modes))
 
@@ -421,13 +421,13 @@ defmodule ArcaneVoice.TTS.Session do
     header = <<0x80, byte1, state.sequence::16-big, state.timestamp::32-big, state.ssrc::32-big>>
 
     packet = cond do
-      state.dave_ready ->
+      state.dave_active && state.dave_ready ->
         case ArcaneVoice.TTS.Dave.encrypt_frame(state.guild_id, opus_frame, "OPUS") do
           {:ok, %{payload: encrypted}} ->
             Logger.debug("Session: DAVE encrypted #{byte_size(encrypted)}b")
             header <> encrypted
           {:error, reason} ->
-            Logger.warning("Session: DAVE encrypt failed, fallback to legacy: #{inspect(reason)}")
+            Logger.warning("Session: DAVE encrypt failed: #{inspect(reason)}")
             nil
         end
 
