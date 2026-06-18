@@ -444,7 +444,7 @@ defmodule ArcaneVoice.TTS.Session do
             Logger.debug("Session: DAVE encrypt produced #{byte_size(encrypted)}b frame")
             cipher = @cipher_map[state.encryption_mode] || :aes_256_gcm
             n4 = <<state.sequence::32>>
-            nonce_12byte = <<n4::binary, 0::size(64)>>
+            nonce_12byte = <<0::size(64), n4::binary>>
             {ciphertext, tag} = :crypto.crypto_one_time_aead(
               cipher, state.secret_key, nonce_12byte, header, encrypted, true
             )
@@ -453,7 +453,7 @@ defmodule ArcaneVoice.TTS.Session do
             else
               header <> ciphertext <> tag
             end
-            if state.frame_index == 0 do
+            if state.first_sent do
               Logger.info("Session: FIRST DAVE packet nonce=#{Base.encode16(nonce_12byte)} ct=#{byte_size(ciphertext)}")
             end
             pkt
@@ -465,7 +465,7 @@ defmodule ArcaneVoice.TTS.Session do
       state.secret_key ->
         cipher = @cipher_map[state.encryption_mode] || :aes_256_gcm
         n4 = <<state.sequence::32>>
-        nonce_12byte = <<n4::binary, 0::size(64)>>
+        nonce_12byte = <<0::size(64), n4::binary>>
         {ciphertext, tag} = :crypto.crypto_one_time_aead(
           cipher, state.secret_key, nonce_12byte, header, opus_frame, true
         )
@@ -488,7 +488,7 @@ defmodule ArcaneVoice.TTS.Session do
 
     if packet do
       case :gen_udp.send(state.udp_socket, to_charlist(state.voice_ip), state.voice_port, packet) do
-        :ok -> if state.frame_index == 0, do: Logger.info("Session: first frame UDP OK")
+        :ok -> if state.first_sent, do: Logger.info("Session: first frame UDP OK")
         {:error, reason} -> Logger.error("Session: UDP send failed: #{inspect(reason)}")
       end
     end
