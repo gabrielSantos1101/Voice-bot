@@ -262,7 +262,9 @@ defmodule ArcaneVoice.TTS.Session do
     case encode_tts(state) do
       {:ok, frames} ->
         total_bytes = Enum.reduce(frames, 0, fn {_ts, f}, acc -> acc + byte_size(f) end)
-        Logger.info("Session: encoded #{length(frames)} Opus frames, total #{total_bytes} bytes, avg #{div(total_bytes, max(length(frames), 1))}b")
+        non_dtx = Enum.count(frames, fn {_ts, f} -> byte_size(f) > 3 end)
+        first5_sizes = frames |> Enum.take(5) |> Enum.map(fn {_ts, f} -> byte_size(f) end) |> inspect()
+        Logger.info("Session: encoded #{length(frames)} Opus frames, #{non_dtx} non-DTX, total #{total_bytes}b, avg #{div(total_bytes, max(length(frames), 1))}b, first5: #{first5_sizes}")
         state = %{state | audio_frames: frames}
         if state.voice_ws_pid do
           Logger.info("Session: SENDING SPEAKING=1 NOW")
