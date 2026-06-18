@@ -311,18 +311,21 @@ defmodule ArcaneVoice.TTS.Session do
     header = <<0x80, byte1, state.sequence::16-big, state.timestamp::32-big, state.ssrc::32-big>>
 
     cipher = @cipher_map[state.encryption_mode] || :aes_256_gcm
-    nonce_suffix = if String.ends_with?(state.encryption_mode, "_rtpsize") do
-      binary_part(header, 2, 4)
+    nonce = if String.ends_with?(state.encryption_mode, "_rtpsize") do
+      binary_part(header, 0, 4)
     else
       <<state.sequence::32>>
     end
-    nonce = <<0::64, nonce_suffix::binary>>
 
     {ciphertext, tag} = :crypto.crypto_one_time_aead(
       cipher, state.secret_key, nonce, opus_frame, header, true
     )
 
-    packet = header <> ciphertext <> tag <> nonce_suffix
+    packet = if String.ends_with?(state.encryption_mode, "_rtpsize") do
+      header <> ciphertext <> tag <> nonce
+    else
+      header <> ciphertext <> tag
+    end
     result = :gen_udp.send(state.udp_socket,
                   to_charlist(state.voice_ip), state.voice_port,
                   packet)
