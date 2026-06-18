@@ -156,13 +156,20 @@ defmodule ArcaneVoice.TTS.Session do
         total_bytes = Enum.reduce(frames, 0, fn {_ts, f}, acc -> acc + byte_size(f) end)
         Logger.info("Session: encoded #{length(frames)} Opus frames, total #{total_bytes} bytes, avg #{div(total_bytes, max(length(frames), 1))}b")
         state = %{state | audio_frames: frames}
-        send(state.voice_ws_pid, {:send_speaking, true})
-        {:noreply, start_streaming(state)}
+        if state.voice_ws_pid do
+          send(state.voice_ws_pid, {:send_speaking, true})
+        end
+        Process.send_after(self(), :do_stream, 100)
+        {:noreply, state}
 
       {:error, reason} ->
         Logger.error("Session: TTS encoding failed: #{inspect(reason)}")
         {:stop, :tts_failed, state}
     end
+  end
+
+  def handle_info(:do_stream, state) do
+    {:noreply, start_streaming(state)}
   end
 
   def handle_info({:voice_ws_disconnected}, state) do
