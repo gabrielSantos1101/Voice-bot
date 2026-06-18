@@ -22,6 +22,11 @@ defmodule ArcaneVoice.DiscordBot.DiscordApi do
             "required" => true
           }
         ]
+      },
+      %{
+        "name" => "settings",
+        "description" => "Configure voice and voice-channel behavior",
+        "type" => 1
       }
     ]
 

@@ -36,6 +36,7 @@ defmodule ArcaneVoice.TTS.Session do
     dave_ready dave_initialized dave_active
     first_sent
     encoding_task stream_after_encode
+    voice idle_timeout_ms idle_timer idle
   ]a
 
   def start_link(opts) do
@@ -43,12 +44,16 @@ defmodule ArcaneVoice.TTS.Session do
     channel_id = Keyword.fetch!(opts, :channel_id)
     text = Keyword.fetch!(opts, :text)
     interaction_token = Keyword.fetch!(opts, :interaction_token)
+    voice = Keyword.fetch!(opts, :voice)
+    idle_timeout_ms = Keyword.fetch!(opts, :idle_timeout_ms)
 
     GenServer.start_link(__MODULE__, %__MODULE__{
       guild_id: guild_id,
       channel_id: channel_id,
       text: text,
       interaction_token: interaction_token,
+      voice: voice,
+      idle_timeout_ms: idle_timeout_ms,
       sequence: 0,
       timestamp: 0,
       dave_ready: false
@@ -74,6 +79,37 @@ defmodule ArcaneVoice.TTS.Session do
     Logger.warning("Session: timeout for guild #{state.guild_id}")
     notify_ended(state)
     {:stop, :normal, state}
+  end
+
+  def handle_info({:play_next, info}, state) do
+    Logger.info("Session: reusing voice connection for guild #{state.guild_id}")
+    if state.idle_timer, do: Process.cancel_timer(state.idle_timer)
+
+    state =
+      state
+      |> reset_playback()
+      |> Map.merge(%{
+        channel_id: info.voice_channel_id,
+        text: info.text,
+        interaction_token: Map.get(info, :interaction_token, ""),
+        voice: Map.get(info, :voice, state.voice),
+        idle_timeout_ms: Map.get(info, :idle_timeout_ms, state.idle_timeout_ms),
+        idle_timer: nil,
+        idle: false
+      })
+
+    if state.voice_ws_pid && state.secret_key && (state.dave_ready || !state.dave_active) do
+      send(self(), :encode_and_stream)
+      {:noreply, state}
+    else
+      send(:discord_bot, {:voice_state_update, state.guild_id, state.channel_id, false, false})
+      {:noreply, state}
+    end
+  end
+
+  def handle_info(:idle_timeout, state) do
+    Logger.info("Session: idle timeout reached for guild #{state.guild_id}, leaving voice")
+    {:stop, :normal, %{state | idle_timer: nil}}
   end
 
   def handle_info(:fetch_bot_id, state) do
@@ -307,9 +343,10 @@ defmodule ArcaneVoice.TTS.Session do
 
       true ->
         Logger.info("Session: SENDING SPEAKING=1 NOW")
+        if state.timeout_timer, do: Process.cancel_timer(state.timeout_timer)
         send(state.voice_ws_pid, {:send_speaking, true})
         Process.send_after(self(), :do_stream, 30)
-        {:noreply, state}
+        {:noreply, %{state | timeout_timer: nil}}
     end
   end
 
@@ -408,7 +445,7 @@ defmodule ArcaneVoice.TTS.Session do
   defp encode_tts(state) do
     engine = ArcaneVoice.TTS.Engine.build(
       provider: Application.get_env(:arcane_voice, :tts_provider, :edge),
-      voice: Application.get_env(:arcane_voice, :tts_voice)
+      voice: state.voice || Application.get_env(:arcane_voice, :tts_voice)
     )
 
     task = Task.async(fn ->
@@ -499,7 +536,7 @@ defmodule ArcaneVoice.TTS.Session do
       "socket=#{inspect(local_ip)}:#{local_port}, dest=#{state.voice_ip}:#{state.voice_port}, " <>
       "encryption=#{state.encryption_mode}, ssrc=#{state.ssrc}")
 
-    state = %{state | frame_index: first_audio_idx, timestamp: first_audio_idx * 960, first_sent: true}
+    state = %{state | frame_index: first_audio_idx, timestamp: state.timestamp + first_audio_idx * 960, first_sent: true}
     timer = Process.send_after(self(), :tick, 50)
     %{state | stream_timer: timer}
   end
@@ -580,16 +617,33 @@ defmodule ArcaneVoice.TTS.Session do
   defp finish_playback(state) do
     Logger.info("Session: TTS playback finished in guild #{state.guild_id}")
     if state.voice_ws_pid, do: send(state.voice_ws_pid, {:send_speaking, false})
-    Process.send_after(self(), :cleanup_timeout, 300)
-    {:stop, :normal, state}
+    notify_idle(state)
+    idle_timer = Process.send_after(self(), :idle_timeout, state.idle_timeout_ms)
+    {:noreply, %{reset_playback(state) | idle_timer: idle_timer, idle: true, timeout_timer: nil}}
   end
 
   defp cleanup(state) do
     if state.timeout_timer, do: Process.cancel_timer(state.timeout_timer)
     if state.stream_timer, do: Process.cancel_timer(state.stream_timer)
+    if state.idle_timer, do: Process.cancel_timer(state.idle_timer)
     if state.udp_socket, do: :gen_udp.close(state.udp_socket)
     if state.voice_ws_pid, do: send(state.voice_ws_pid, :disconnect)
     if state.dave_ready, do: ArcaneVoice.TTS.Dave.close(state.guild_id)
+  end
+
+  defp notify_idle(state) do
+    if state.tts_pid, do: send(state.tts_pid, {:session_idle, state.guild_id, self()})
+  end
+
+  defp reset_playback(state) do
+    %{state |
+      audio_frames: nil,
+      frame_index: nil,
+      stream_timer: nil,
+      encoding_task: nil,
+      stream_after_encode: false,
+      first_sent: false
+    }
   end
 
   defp transport_nonce(n4), do: <<n4::binary, 0::size(64)>>
