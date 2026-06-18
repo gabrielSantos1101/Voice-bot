@@ -1,14 +1,20 @@
 defmodule ArcaneVoice.TTS.Opus do
   @moduledoc false
 
+  require Logger
+
   alias ArcaneVoice.TTS.Ogg
+
+  @debug_dir System.tmp_dir!() <> "/arcane_voice_debug"
 
   @sample_rate 48_000
   @frame_duration_ms 20
 
   def encode(pcm_data, bitrate \\ 64_000) do
+    File.mkdir_p!(@debug_dir)
+    ts = System.system_time(:millisecond)
     tmp_in = tmp_path("pcm")
-    tmp_out = tmp_path("opus")
+    tmp_out = Path.join(@debug_dir, "tts_#{ts}.opus")
     File.write!(tmp_in, pcm_data)
 
     args = [
@@ -30,13 +36,18 @@ defmodule ArcaneVoice.TTS.Opus do
       case System.cmd("ffmpeg", args, stderr_to_stdout: true) do
         {_, 0} ->
           ogg_data = File.read!(tmp_out)
+          Logger.info("Opus: OGG saved to #{tmp_out} (#{byte_size(ogg_data)} bytes)")
+          ArcaneVoice.Debug.set(:ogg, tmp_out)
 
           case Ogg.parse(ogg_data) do
             {:ok, frames} ->
+              frame_sizes = frames |> Enum.take(5) |> Enum.map(&byte_size/1) |> inspect()
+              Logger.info("Opus: parsed #{length(frames)} frames, first 5 sizes: #{frame_sizes}")
               timestamps = build_timestamps(length(frames))
               {:ok, Enum.zip(timestamps, frames)}
 
             error ->
+              Logger.error("Opus: Ogg parse failed: #{inspect(error)}")
               error
           end
 
@@ -45,7 +56,6 @@ defmodule ArcaneVoice.TTS.Opus do
       end
 
     File.rm(tmp_in)
-    File.rm(tmp_out)
     result
   end
 

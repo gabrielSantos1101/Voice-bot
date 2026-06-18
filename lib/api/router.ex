@@ -47,6 +47,7 @@ defmodule ArcaneVoice.Api.Router do
   forward("/discord", to: Discord)
   forward("/metrics", to: Metrics)
   forward("/tts", to: ArcaneVoice.Api.Routes.TTS)
+  forward("/debug", to: ArcaneVoice.Api.Routes.Debug)
 
   options _ do
     conn

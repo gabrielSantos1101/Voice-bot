@@ -8,6 +8,7 @@ defmodule ArcaneVoice do
     children = [
       {Finch, name: ArcaneVoice.Finch},
       {ArcaneVoice.Metrics, :normal},
+      ArcaneVoice.Debug,
       {ArcaneVoice.TTS, []},
       {ArcaneVoice.DiscordBot, %{token: Application.get_env(:arcane_voice, :bot_token)}},
       {Bandit,
