@@ -15,6 +15,8 @@ defmodule ArcaneVoice.TTS.Opus do
     tmp_in = tmp_path("pcm")
     tmp_out = Path.join(@debug_dir, "last.opus")
     File.write!(tmp_in, pcm_data)
+    disk_size = byte_size(File.read!(tmp_in))
+    Logger.info("Opus: PCM written #{byte_size(pcm_data)}b to disk, readback #{disk_size}b")
 
     pcm_size = byte_size(pcm_data)
     chk = fn offset ->
@@ -39,7 +41,7 @@ defmodule ArcaneVoice.TTS.Opus do
       "-frame_duration", "#{@frame_duration_ms}",
       "-nostdin",
       "-y",
-      "-f", "opus",
+      "-f", "ogg",
       "-loglevel", "error",
       tmp_out
     ]
