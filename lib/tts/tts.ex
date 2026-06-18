@@ -252,6 +252,13 @@ defmodule ArcaneVoice.TTS do
             state
 
           else
+            text = if settings.read_username do
+              display_name = get_in(data, ["member", "nick"]) || get_in(data, ["member", "user", "global_name"]) || get_in(data, ["member", "user", "username"]) || "Alguém"
+              "#{display_name} disse: #{text}"
+            else
+              text
+            end
+            text = String.slice(text, 0, @max_text_length)
             respond_interaction(data, %{
               "type" => 4,
               "data" => %{"content" => text}
@@ -352,6 +359,22 @@ defmodule ArcaneVoice.TTS do
     end
   end
 
+  defp handle_component(data, "settings:read_username", state) do
+    guild_id = data["guild_id"]
+    value = data |> get_in(["data", "values"]) |> List.first()
+
+    read = value == "true"
+    settings = settings_for(state, guild_id) |> Map.put(:read_username, read)
+    state = put_settings(state, guild_id, settings)
+
+    respond_interaction(data, %{
+      "type" => 4,
+      "data" => %{"flags" => 64, "content" => "Leitura de nome #{if read, do: "ativada", else: "desativada"}."}
+    })
+
+    state
+  end
+
   defp handle_component(data, custom_id, state) do
     Logger.debug("TTS: unknown component #{custom_id}")
     respond_interaction(data, %{
@@ -409,7 +432,8 @@ defmodule ArcaneVoice.TTS do
   defp settings_for(state, guild_id) do
     Map.get(state.settings, guild_id, %{
       voice: Application.get_env(:arcane_voice, :tts_voice, @default_voice),
-      idle_timeout_ms: @default_idle_timeout_ms
+      idle_timeout_ms: @default_idle_timeout_ms,
+      read_username: false
     })
   end
 
@@ -424,7 +448,7 @@ defmodule ArcaneVoice.TTS do
   end
 
   defp settings_content(settings) do
-    "Configurações atuais\nVoz: #{voice_label(settings.voice)}\nTempo em call: #{idle_label(settings.idle_timeout_ms)}"
+    "Configurações atuais\nVoz: #{voice_label(settings.voice)}\nTempo em call: #{idle_label(settings.idle_timeout_ms)}\nLer nome: #{if settings.read_username, do: "Sim", else: "Não"}"
   end
 
   defp settings_components(settings) do
@@ -468,6 +492,22 @@ defmodule ArcaneVoice.TTS do
                   "default" => value == settings.idle_timeout_ms
                 }
               end)
+          }
+        ]
+      },
+      %{
+        "type" => 1,
+        "components" => [
+          %{
+            "type" => 3,
+            "custom_id" => "settings:read_username",
+            "placeholder" => "Ler nome do usuário",
+            "min_values" => 1,
+            "max_values" => 1,
+            "options" => [
+              %{"label" => "Desativado", "value" => "false", "description" => "Não ler o nome (padrão)", "default" => !settings.read_username},
+              %{"label" => "Ativado", "value" => "true", "description" => "Ler o nome antes da mensagem", "default" => settings.read_username}
+            ]
           }
         ]
       }
