@@ -27,7 +27,14 @@ defmodule ArcaneVoice.TTS.Opus do
     nz_start = chk.(0)
     nz_mid = if pcm_size >= 48000, do: chk.(div(pcm_size, 2) - 500), else: 0
     nz_end = if pcm_size >= 2000, do: chk.(pcm_size - 1000), else: 0
-    Logger.info("Opus: PCM input #{pcm_size} bytes, non-zero: start=#{nz_start} mid=#{nz_mid} end=#{nz_end}")
+
+    first_nz = pcm_data |> :binary.bin_to_list() |> Enum.find_index(&(&1 != 0))
+    mid_start = div(pcm_size, 2) - 960  # one 20ms frame
+    mid_frame = if mid_start >= 0 && mid_start + 1920 <= pcm_size, do: binary_part(pcm_data, mid_start, 1920) |> :binary.bin_to_list(), else: []
+    mid_min = if mid_frame != [], do: Enum.min(mid_frame), else: 0
+    mid_max = if mid_frame != [], do: Enum.max(mid_frame), else: 0
+
+    Logger.info("Opus: PCM input #{pcm_size} bytes, non-zero: start=#{nz_start} mid=#{nz_mid} end=#{nz_end}, first_nz=#{inspect(first_nz)}, mid_frame min=#{mid_min} max=#{mid_max}")
 
     args = [
       "-f", "s16le",

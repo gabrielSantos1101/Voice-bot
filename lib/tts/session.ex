@@ -455,13 +455,23 @@ defmodule ArcaneVoice.TTS.Session do
         {ciphertext, tag} = :crypto.crypto_one_time_aead(
           cipher, state.secret_key, nonce_12byte, opus_frame, header, true
         )
+
+        # verify encryption roundtrip
+        {:ok, decrypted} = :crypto.crypto_one_time_aead(
+          cipher, state.secret_key, nonce_12byte, ciphertext <> tag, header, false
+        )
+        if decrypted != opus_frame do
+          Logger.error("Session: encryption MISMATCH at frame #{state.frame_index}")
+        end
+
         pkt = if String.ends_with?(state.encryption_mode, "_rtpsize") do
           header <> ciphertext <> tag <> n4
         else
           header <> ciphertext <> tag
         end
-        if state.frame_index == 0 do
-          Logger.info("Session: FIRST legacy packet nonce=#{Base.encode16(nonce_12byte)} ct=#{byte_size(ciphertext)}")
+        if rem(state.frame_index, 50) == 0 do
+          Logger.info("Session: frame #{state.frame_index} seq=#{state.sequence} ts=#{state.timestamp} " <>
+            "nonce=#{Base.encode16(nonce_12byte)} ct=#{byte_size(ciphertext)} pkt=#{byte_size(pkt)}b")
         end
         pkt
 
