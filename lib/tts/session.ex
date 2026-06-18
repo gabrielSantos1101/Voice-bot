@@ -1,8 +1,8 @@
 defmodule ArcaneVoice.TTS.Session do
   @moduledoc false
 
-  # BUILD_ID: e2a70aa+1-fix-otp27-decrypt (change this each commit to force Docker rebuild)
-  @build_id "2026-06-18-otp27-fix"
+  # BUILD_ID: 7264d85-fix-otp27-order (OTP27 swaps arg4/arg5 in /6 API)
+  @build_id "2026-06-18-otp27-order-fix"
 
   require Logger
 
@@ -456,9 +456,9 @@ defmodule ArcaneVoice.TTS.Session do
             cipher = @cipher_map[state.encryption_mode] || :aes_256_gcm
             n4 = <<state.sequence::32>>
             nonce_12byte = <<0::size(64), n4::binary>>
-            Logger.debug("Session: DAVE encrypt aad=#{byte_size(header)}b pt=#{byte_size(encrypted)}b nonce=#{Base.encode16(nonce_12byte)}")
+            Logger.debug("Session: DAVE encrypt OTP27 arg4=encrypted(#{byte_size(encrypted)}b) arg5=header(#{byte_size(header)}b)")
             {ciphertext, tag} = :crypto.crypto_one_time_aead(
-              cipher, state.secret_key, nonce_12byte, header, encrypted, true
+              cipher, state.secret_key, nonce_12byte, encrypted, header, true
             )
             pkt = if String.ends_with?(state.encryption_mode, "_rtpsize") do
               header <> ciphertext <> tag <> n4
@@ -478,20 +478,21 @@ defmodule ArcaneVoice.TTS.Session do
         cipher = @cipher_map[state.encryption_mode] || :aes_256_gcm
         n4 = <<state.sequence::32>>
         nonce_12byte = <<0::size(64), n4::binary>>
-        Logger.info("Session: encrypt AAD=header(#{byte_size(header)}b) PT=opus_frame(#{byte_size(opus_frame)}b) nonce=#{Base.encode16(nonce_12byte)}")
+        Logger.info("Session: encrypt OTP27_ORDER arg4=opus_frame(#{byte_size(opus_frame)}b) arg5=header(#{byte_size(header)}b) nonce=#{Base.encode16(nonce_12byte)}")
         {ciphertext, tag} = :crypto.crypto_one_time_aead(
-          cipher, state.secret_key, nonce_12byte, header, opus_frame, true
+          cipher, state.secret_key, nonce_12byte, opus_frame, header, true
         )
         Logger.info("Session: encrypt RESULT ct=#{byte_size(ciphertext)}b tag=#{byte_size(tag)}b")
 
-        # OTP 27 decrypt API: separate ciphertext and tag args (not ct<>tag, false)
+        # OTP 27: /5 with tuple for decrypt (AAD, {Ct, Tag})
         try do
           {:ok, decrypted} = :crypto.crypto_one_time_aead(
-            cipher, state.secret_key, nonce_12byte, header, ciphertext, tag
+            cipher, state.secret_key, nonce_12byte, header, {ciphertext, tag}
           )
           if decrypted != opus_frame do
             Logger.warning("Session: encrypt VERIFY MISMATCH ct=#{byte_size(ciphertext)}b " <>
-              "got=#{byte_size(decrypted)}b expected=#{byte_size(opus_frame)}b")
+              "got=#{byte_size(decrypted)}b expected=#{byte_size(opus_frame)}b " <>
+              "aad=#{byte_size(header)}b pt=#{byte_size(opus_frame)}b")
           end
         rescue
           e -> Logger.error("Session: encrypt VERIFY ERROR: #{inspect(e)}")
