@@ -126,8 +126,7 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
     {:ok, state}
   end
 
-  defp handle_op(op, _data, state) do
-    Logger.debug("Voice WS: unhandled op #{op}")
+  defp handle_op(_op, _data, state) do
     {:ok, state}
   end
 end
