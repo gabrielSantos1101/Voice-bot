@@ -157,7 +157,10 @@ defmodule ArcaneVoice.TTS.Session do
         Logger.info("Session: encoded #{length(frames)} Opus frames, total #{total_bytes} bytes, avg #{div(total_bytes, max(length(frames), 1))}b")
         state = %{state | audio_frames: frames}
         if state.voice_ws_pid do
+          Logger.info("Session: SENDING SPEAKING=1 NOW")
           send(state.voice_ws_pid, {:send_speaking, true})
+        else
+          Logger.error("Session: voice_ws_pid is nil, CANNOT send speaking=1")
         end
         Process.send_after(self(), :do_stream, 100)
         {:noreply, state}
@@ -294,7 +297,7 @@ defmodule ArcaneVoice.TTS.Session do
 
   defp start_streaming(state) do
     {:ok, {local_ip, local_port}} = :inet.sockname(state.udp_socket)
-    Logger.info("Session: starting stream, #{length(state.audio_frames)} frames total, " <>
+    Logger.info("Session: STARTING STREAM, #{length(state.audio_frames)} frames, " <>
       "socket=#{inspect(local_ip)}:#{local_port}, dest=#{state.voice_ip}:#{state.voice_port}, " <>
       "encryption=#{state.encryption_mode}, ssrc=#{state.ssrc}")
     state = %{state | frame_index: 0}
@@ -316,9 +319,10 @@ defmodule ArcaneVoice.TTS.Session do
     else
       <<state.sequence::32>>
     end
+    nonce12 = <<0::64, nonce::binary>>
 
     {ciphertext, tag} = :crypto.crypto_one_time_aead(
-      cipher, state.secret_key, nonce, opus_frame, header, true
+      cipher, state.secret_key, nonce12, opus_frame, header, true
     )
 
     packet = if String.ends_with?(state.encryption_mode, "_rtpsize") do

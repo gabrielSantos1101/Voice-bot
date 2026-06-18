@@ -24,32 +24,28 @@ defmodule ArcaneVoice.TTS.Audio do
       "-f", "s16le",
       "-ar", "48000",
       "-ac", "1",
+      "-nostdin",
       "-y",
-      "-loglevel", "debug",
+      "-loglevel", "error",
       pcm_path
     ]
 
     result =
-      case System.cmd("ffmpeg", args, stderr_to_stdout: true) do
-        {output, 0} ->
-          if File.exists?(pcm_path) do
-            pcm = File.read!(pcm_path)
-            pcm_size = byte_size(pcm)
-            non_zero = if pcm_size >= 2000 do
-              pcm |> binary_part(0, 2000) |> :binary.bin_to_list() |> Enum.count(&(&1 != 0))
-            else
-              0
-            end
-            Logger.info("Audio: PCM generated (#{pcm_size} bytes, first 2000 have #{non_zero} non-zero bytes)")
-            Logger.info("Audio: ffmpeg log: #{String.slice(output, -2000, 2000)}")
-            ArcaneVoice.Debug.set(:mp3, mp3_path)
-            ArcaneVoice.Debug.set(:pcm, pcm_path)
-            {:ok, pcm}
+      case System.cmd("ffmpeg", args) do
+        {_output, 0} ->
+          pcm = File.read!(pcm_path)
+          pcm_size = byte_size(pcm)
+          non_zero = if pcm_size >= 2000 do
+            pcm |> binary_part(0, 2000) |> :binary.bin_to_list() |> Enum.count(&(&1 != 0))
           else
-            {:error, "ffmpeg didn't produce PCM file: #{output}"}
+            0
           end
+          Logger.info("Audio: PCM generated (#{pcm_size} bytes, first 2000 have #{non_zero} non-zero bytes)")
+          ArcaneVoice.Debug.set(:mp3, mp3_path)
+          ArcaneVoice.Debug.set(:pcm, pcm_path)
+          {:ok, pcm}
         {output, exit_code} ->
-          {:error, "ffmpeg failed (exit #{exit_code}): #{String.slice(output, -2000, 2000)}"}
+          {:error, "ffmpeg failed (exit #{exit_code}): #{output}"}
       end
 
     result

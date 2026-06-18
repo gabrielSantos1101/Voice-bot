@@ -30,14 +30,16 @@ defmodule ArcaneVoice.TTS.Opus do
       "-ar", "#{@sample_rate}",
       "-ac", "1",
       "-frame_duration", "#{@frame_duration_ms}",
+      "-nostdin",
+      "-y",
       "-f", "opus",
       "-loglevel", "error",
       tmp_out
     ]
 
     result =
-      case System.cmd("ffmpeg", args, stderr_to_stdout: true) do
-        {_, 0} ->
+      case System.cmd("ffmpeg", args) do
+        {_output, 0} ->
           ogg_data = File.read!(tmp_out)
           Logger.info("Opus: OGG saved to #{tmp_out} (#{byte_size(ogg_data)} bytes)")
           ArcaneVoice.Debug.set(:ogg, tmp_out)
