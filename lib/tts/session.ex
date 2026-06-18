@@ -149,8 +149,10 @@ defmodule ArcaneVoice.TTS.Session do
   end
 
   def handle_info(:encode_and_stream, state) do
+    Logger.info("Session: encoding TTS for text: #{String.slice(state.text, 0, 50)}")
     case encode_tts(state) do
       {:ok, frames} ->
+        Logger.info("Session: encoded #{length(frames)} Opus frames")
         state = %{state | audio_frames: frames}
         send(state.voice_ws_pid, {:send_speaking, true})
         {:noreply, start_streaming(state)}
@@ -167,12 +169,15 @@ defmodule ArcaneVoice.TTS.Session do
   end
 
   def handle_info(:tick, state) do
-    if state.frame_index < length(state.audio_frames) do
+    total = length(state.audio_frames)
+    if state.frame_index < total do
+      Logger.debug("Session: sending frame #{state.frame_index}/#{total}")
       state = send_frame(state)
       timer = Process.send_after(self(), :tick, 20)
       {:noreply, %{state | stream_timer: timer, frame_index: state.frame_index + 1,
                            sequence: state.sequence + 1, timestamp: state.timestamp + 960}}
     else
+      Logger.info("Session: all #{total} frames sent, finishing playback")
       finish_playback(state)
     end
   end
@@ -253,18 +258,33 @@ defmodule ArcaneVoice.TTS.Session do
 
     task = Task.async(fn ->
       case ArcaneVoice.TTS.Engine.synthesize(engine, state.text) do
-        {:ok, pcm} -> Opus.encode(pcm)
-        error -> error
+        {:ok, pcm} ->
+          pcm_size = byte_size(pcm)
+          Logger.info("Session: PCM synthesized, size=#{pcm_size} bytes (#{div(pcm_size, 96000)}s approx)")
+          case Opus.encode(pcm) do
+            {:ok, frames} ->
+              Logger.info("Session: Opus encoded, #{length(frames)} frames")
+              {:ok, frames}
+            error ->
+              Logger.error("Session: Opus encode failed: #{inspect(error)}")
+              error
+          end
+        error ->
+          Logger.error("Session: TTS synthesis failed: #{inspect(error)}")
+          error
       end
     end)
 
     case Task.yield(task, 10_000) || Task.shutdown(task, :brutal_kill) do
       {:ok, result} -> result
-      nil -> {:error, "TTS synthesis timed out"}
+      nil ->
+        Logger.error("Session: TTS synthesis timed out after 10s")
+        {:error, "TTS synthesis timed out"}
     end
   end
 
   defp start_streaming(state) do
+    Logger.info("Session: starting stream, #{length(state.audio_frames)} frames total")
     state = %{state | frame_index: 0}
     state = send_frame(state)
     timer = Process.send_after(self(), :tick, 20)
@@ -274,6 +294,8 @@ defmodule ArcaneVoice.TTS.Session do
 
   defp send_frame(state) do
     {_ts, opus_frame} = Enum.at(state.audio_frames, state.frame_index)
+    frame_size = byte_size(opus_frame)
+    Logger.debug("Session: send_frame idx=#{state.frame_index} size=#{frame_size} seq=#{state.sequence} ts=#{state.timestamp}")
     header = <<0x80, 0x78, state.sequence::16-big, state.timestamp::32-big, state.ssrc::32-big>>
 
     cipher = @cipher_map[state.encryption_mode] || :aes_256_gcm

@@ -41,18 +41,17 @@ defmodule ArcaneVoice.TTS.Ogg do
   end
 
   defp process_page({_header_type, _granule, lengths, data}, %__MODULE__{} = acc) do
-    case extract_first_packet(data, lengths) do
-      packet when is_binary(packet) and byte_size(packet) > 0 ->
-        if String.starts_with?(packet, "OpusTags") do
-          acc
-        else
-          %{acc | packets: [packet | acc.packets]}
-        end
-      _ ->
-        acc
-    end
+    packets = extract_all_packets(data, lengths, [])
+    packets = Enum.reject(packets, &String.starts_with?(&1, "OpusTags"))
+    %{acc | packets: packets ++ acc.packets}
   end
 
   defp extract_first_packet(data, [first_len | _rest]), do: binary_part(data, 0, first_len)
   defp extract_first_packet(_, []), do: nil
+
+  defp extract_all_packets(_data, [], packets), do: Enum.reverse(packets)
+  defp extract_all_packets(data, [len | rest], packets) do
+    <<packet::binary-size(len), remaining::binary>> = data
+    extract_all_packets(remaining, rest, [packet | packets])
+  end
 end
