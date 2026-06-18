@@ -140,35 +140,29 @@ defmodule ArcaneVoice.TTS do
       true ->
         channel_id = get_in(state.voice_states, [guild_id, user_id, "channel_id"])
 
-        if is_nil(channel_id) do
-          respond_interaction(data, %{
-            "type" => 4,
-            "data" => %{"content" => "Você precisa estar em um canal de voz para usar este comando.", "flags" => 64}
-          })
-          state
-
-        else
-          if Map.has_key?(state.sessions, guild_id) do
+          if is_nil(channel_id) do
             respond_interaction(data, %{
               "type" => 4,
-              "data" => %{"content" => "Já estou falando algo neste servidor. Seu texto será enfileirado.", "flags" => 64}
+              "data" => %{"content" => "Você precisa estar em um canal de voz para usar este comando.", "flags" => 64}
             })
-
-            queue = Map.get(state.queues, guild_id, [])
-            %{state | queues: Map.put(state.queues, guild_id, queue ++ [%{voice_channel_id: channel_id, text: text, interaction_token: interaction_token}])}
+            state
 
           else
-          respond_interaction(data, %{
-            "type" => 4,
-            "data" => %{"content" => "Pensando..."}
-          })
+            respond_interaction(data, %{
+              "type" => 4,
+              "data" => %{"content" => text}
+            })
 
-            pid = start_session(guild_id, %{voice_channel_id: channel_id, text: text, interaction_token: interaction_token})
-            Process.monitor(pid)
-            send(pid, {:tts_config, self(), guild_id})
-            %{state | sessions: Map.put(state.sessions, guild_id, pid)}
+            if Map.has_key?(state.sessions, guild_id) do
+              queue = Map.get(state.queues, guild_id, [])
+              %{state | queues: Map.put(state.queues, guild_id, queue ++ [%{voice_channel_id: channel_id, text: text, interaction_token: interaction_token}])}
+            else
+              pid = start_session(guild_id, %{voice_channel_id: channel_id, text: text, interaction_token: interaction_token})
+              Process.monitor(pid)
+              send(pid, {:tts_config, self(), guild_id})
+              %{state | sessions: Map.put(state.sessions, guild_id, pid)}
+            end
           end
-        end
     end
   end
 
