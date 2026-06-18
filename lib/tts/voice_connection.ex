@@ -93,7 +93,9 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
 
   def websocket_info({:send_dave_binary, opcode, payload}, ws_req, state) do
     frame = <<opcode::8, payload::binary>>
-    Logger.debug("Voice WS: sending dave binary op=#{opcode} size=#{byte_size(frame)}b")
+    Logger.debug(
+      "Voice WS: sending dave binary op=#{opcode} size=#{byte_size(frame)}b head=#{frame_head(frame)}"
+    )
     {:reply, {:binary, frame}, state}
   end
 
@@ -170,5 +172,10 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
 
   defp handle_text_op(_op, _data, state) do
     {:ok, state}
+  end
+
+  defp frame_head(frame) do
+    size = min(byte_size(frame), 8)
+    Base.encode16(binary_part(frame, 0, size), case: :lower)
   end
 end

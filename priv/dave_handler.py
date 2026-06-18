@@ -21,6 +21,15 @@ def discord_payload(packet, expected_opcode):
     return packet
 
 
+def packet_debug(raw, payload):
+    return {
+        "raw_size": len(raw),
+        "raw_head": raw[:8].hex(),
+        "payload_size": len(payload),
+        "payload_head": payload[:8].hex(),
+    }
+
+
 def cmd_init(data):
     gid = data["guild_id"]
     uid = data["user_id"]
@@ -33,8 +42,15 @@ def cmd_prepare_epoch(data):
     epoch = data.get("epoch", 1)
     session = sessions[gid]
     key_package = session.prepare_epoch(epoch)
-    payload_b64 = base64.b64encode(discord_payload(key_package, 26)).decode()
-    return {"type": "response", "guild_id": gid, "opcode": 26, "payload": payload_b64}
+    payload = discord_payload(key_package, 26)
+    payload_b64 = base64.b64encode(payload).decode()
+    return {
+        "type": "response",
+        "guild_id": gid,
+        "opcode": 26,
+        "payload": payload_b64,
+        "debug": packet_debug(key_package, payload),
+    }
 
 
 def cmd_handle_external_sender(data):
@@ -51,8 +67,15 @@ def cmd_handle_proposals(data):
     session = sessions[gid]
     result = session.handle_proposals(bytes([0, 0, 27]) + payload)
     if result:
-        payload_b64 = base64.b64encode(discord_payload(result, 28)).decode()
-        return {"type": "response", "guild_id": gid, "opcode": 28, "payload": payload_b64}
+        payload = discord_payload(result, 28)
+        payload_b64 = base64.b64encode(payload).decode()
+        return {
+            "type": "response",
+            "guild_id": gid,
+            "opcode": 28,
+            "payload": payload_b64,
+            "debug": packet_debug(result, payload),
+        }
     return {"type": "ok"}
 
 

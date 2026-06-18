@@ -188,6 +188,12 @@ defmodule ArcaneVoice.TTS.Dave do
 
       "response" ->
         payload = Base.decode64!(resp["payload"])
+        if debug = resp["debug"] do
+          Logger.info(
+            "Dave: response opcode=#{resp["opcode"]} raw=#{debug["raw_size"]}b/#{debug["raw_head"]} " <>
+              "payload=#{debug["payload_size"]}b/#{debug["payload_head"]}"
+          )
+        end
         if from, do: GenServer.reply(from, {:ok, %{opcode: resp["opcode"], payload: payload}})
         %{state | pending: rest}
 
