@@ -1,6 +1,8 @@
 defmodule ArcaneVoice.TTS.Ogg do
   @moduledoc false
 
+  require Logger
+
   defstruct packets: [], is_opuss: false
 
   def parse(data) do
@@ -32,26 +34,34 @@ defmodule ArcaneVoice.TTS.Ogg do
   defp take_page(<<>>), do: :error
 
   defp process_page({_header_type, _granule, lengths, data}, %__MODULE__{is_opuss: false} = acc) do
-    packet = extract_first_packet(data, lengths)
-    if packet && String.starts_with?(packet, "OpusHead") do
-      %{acc | is_opuss: true}
-    else
-      acc
+    case group_segments_into_packets(lengths, data) do
+      [first | _] when is_binary(first) and String.starts_with?(first, "OpusHead") ->
+        %{acc | is_opuss: true}
+      _ ->
+        acc
     end
   end
 
   defp process_page({_header_type, _granule, lengths, data}, %__MODULE__{} = acc) do
-    packets = extract_all_packets(data, lengths, [])
-    packets = Enum.reject(packets, &String.starts_with?(&1, "OpusTags"))
-    %{acc | packets: packets ++ acc.packets}
+    packets = group_segments_into_packets(lengths, data)
+    audio_packets = Enum.reject(packets, &String.starts_with?(&1, "OpusTags"))
+    Logger.debug("Ogg: page with #{length(lengths)} segments → #{length(audio_packets)} audio packets")
+    %{acc | packets: audio_packets ++ acc.packets}
   end
 
-  defp extract_first_packet(data, [first_len | _rest]), do: binary_part(data, 0, first_len)
-  defp extract_first_packet(_, []), do: nil
+  defp group_segments_into_packets(lengths, data) do
+    {packets, _rest} = do_group(lengths, data, <<>>, [])
+    Enum.reverse(packets)
+  end
 
-  defp extract_all_packets(_data, [], packets), do: Enum.reverse(packets)
-  defp extract_all_packets(data, [len | rest], packets) do
-    <<packet::binary-size(len), remaining::binary>> = data
-    extract_all_packets(remaining, rest, [packet | packets])
+  defp do_group([], rest, _acc, packets), do: {packets, rest}
+  defp do_group([len | rest], data, acc, packets) do
+    <<seg::binary-size(len), remaining::binary>> = data
+    if len < 255 do
+      packet = <<acc::binary, seg::binary>>
+      do_group(rest, remaining, <<>>, [packet | packets])
+    else
+      do_group(rest, remaining, <<acc::binary, seg::binary>>, packets)
+    end
   end
 end
