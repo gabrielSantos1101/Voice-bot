@@ -30,6 +30,11 @@ def packet_debug(raw, payload):
     }
 
 
+def dave_packet(data, opcode, payload):
+    seq = int(data.get("seq", 0)) & 0xFFFF
+    return seq.to_bytes(2, "big") + bytes([opcode]) + payload
+
+
 def cmd_init(data):
     gid = data["guild_id"]
     uid = data["user_id"]
@@ -57,7 +62,7 @@ def cmd_handle_external_sender(data):
     gid = data["guild_id"]
     payload = base64.b64decode(data["payload"])
     session = sessions[gid]
-    session.handle_external_sender_package(bytes([0, 0, 25]) + payload)
+    session.handle_external_sender_package(dave_packet(data, 25, payload))
     return {"type": "ok"}
 
 
@@ -65,7 +70,7 @@ def cmd_handle_proposals(data):
     gid = data["guild_id"]
     payload = base64.b64decode(data["payload"])
     session = sessions[gid]
-    result = session.handle_proposals(bytes([0, 0, 27]) + payload)
+    result = session.handle_proposals(dave_packet(data, 27, payload))
     if result:
         payload = discord_payload(result, 28)
         payload_b64 = base64.b64encode(payload).decode()

@@ -172,19 +172,19 @@ defmodule ArcaneVoice.TTS.Session do
     {:noreply, prepare_dave_epoch(state, epoch)}
   end
 
-  def handle_info({:dave_frame, 25, _seq, payload}, state) do
+  def handle_info({:dave_frame, 25, seq, payload}, state) do
     Logger.info("Session: DAVE external_sender_package (#{byte_size(payload)}b)")
     state = ensure_dave_initialized(state)
-    _ = ArcaneVoice.TTS.Dave.handle_external_sender(state.guild_id, payload)
+    _ = ArcaneVoice.TTS.Dave.handle_external_sender(state.guild_id, payload, dave_seq(seq))
     state = prepare_dave_epoch(state, 1)
     {:noreply, state}
   end
 
-  def handle_info({:dave_frame, 27, _seq, payload}, state) do
+  def handle_info({:dave_frame, 27, seq, payload}, state) do
     Logger.info("Session: DAVE proposals (#{byte_size(payload)}b)")
     state = ensure_dave_initialized(state)
 
-    case ArcaneVoice.TTS.Dave.handle_proposals(state.guild_id, payload) do
+    case ArcaneVoice.TTS.Dave.handle_proposals(state.guild_id, payload, dave_seq(seq)) do
       {:ok, %{opcode: 28, payload: commit_welcome}} ->
         Logger.info("Session: DAVE sending commit_welcome (#{byte_size(commit_welcome)}b)")
         send(state.voice_ws_pid, {:send_dave_binary, 28, commit_welcome})
@@ -273,6 +273,9 @@ defmodule ArcaneVoice.TTS.Session do
       end
     end
   end
+
+  defp dave_seq(seq) when is_integer(seq), do: seq
+  defp dave_seq(_), do: 0
 
   # ── Streaming ──
 

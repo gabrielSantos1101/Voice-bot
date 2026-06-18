@@ -21,12 +21,12 @@ defmodule ArcaneVoice.TTS.Dave do
     GenServer.call(__MODULE__, {:prepare_epoch, guild_id, epoch}, 30_000)
   end
 
-  def handle_external_sender(guild_id, payload) do
-    GenServer.call(__MODULE__, {:handle_external_sender, guild_id, payload}, 30_000)
+  def handle_external_sender(guild_id, payload, seq \\ 0) do
+    GenServer.call(__MODULE__, {:handle_external_sender, guild_id, payload, seq}, 30_000)
   end
 
-  def handle_proposals(guild_id, payload) do
-    GenServer.call(__MODULE__, {:handle_proposals, guild_id, payload}, 30_000)
+  def handle_proposals(guild_id, payload, seq \\ 0) do
+    GenServer.call(__MODULE__, {:handle_proposals, guild_id, payload, seq}, 30_000)
   end
 
   def handle_commit(guild_id, transition_id, payload) do
@@ -73,12 +73,22 @@ defmodule ArcaneVoice.TTS.Dave do
     {:noreply, queue_cmd(%{cmd: "prepare_epoch", guild_id: guild_id, epoch: epoch}, from, state)}
   end
 
-  def handle_call({:handle_external_sender, guild_id, payload}, from, state) do
-    {:noreply, queue_cmd(%{cmd: "handle_external_sender", guild_id: guild_id, payload: Base.encode64(payload)}, from, state)}
+  def handle_call({:handle_external_sender, guild_id, payload, seq}, from, state) do
+    {:noreply,
+     queue_cmd(
+       %{cmd: "handle_external_sender", guild_id: guild_id, payload: Base.encode64(payload), seq: seq},
+       from,
+       state
+     )}
   end
 
-  def handle_call({:handle_proposals, guild_id, payload}, from, state) do
-    {:noreply, queue_cmd(%{cmd: "handle_proposals", guild_id: guild_id, payload: Base.encode64(payload)}, from, state)}
+  def handle_call({:handle_proposals, guild_id, payload, seq}, from, state) do
+    {:noreply,
+     queue_cmd(
+       %{cmd: "handle_proposals", guild_id: guild_id, payload: Base.encode64(payload), seq: seq},
+       from,
+       state
+     )}
   end
 
   def handle_call({:handle_commit, guild_id, transition_id, payload}, from, state) do
