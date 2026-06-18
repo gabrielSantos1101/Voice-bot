@@ -1,9 +1,8 @@
 defmodule ArcaneVoice.TTS.Session do
   @moduledoc false
 
-  # BUILD_ID: DAVE fixes - read dave_ver from Session Description (op 4), send op 23 as client,
-  # set dave_ready on Execute Transition (op 22), removed wrong dave_ver from Ready (op 2)
-  @build_id "2026-06-18-dave-fix"
+  # BUILD_ID: DAVE fixes + binary frame parsing fix (v4 has no seq number)
+  @build_id "2026-06-18-dave-v2"
 
   require Logger
 

@@ -5,12 +5,6 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
 
   # DAVE opcodes
   @dave_prepare_epoch 24
-  @dave_external_sender 25
-  @dave_key_package 26
-  @dave_proposals 27
-  @dave_commit_welcome 28
-  @dave_announce_commit 29
-  @dave_welcome 30
   @dave_execute_transition 22
 
   def start_link(session_pid, endpoint, guild_id, user_id, session_id, token) do
@@ -56,10 +50,11 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
   end
 
   def websocket_handle({:binary, payload}, ws_req, state) do
-    if byte_size(payload) >= 3 do
-      <<seq::16-big, opcode::8, rest::binary>> = payload
-      Logger.debug("Voice WS: binary frame op=#{opcode} seq=#{seq} size=#{byte_size(payload)}b")
-      send(state.session_pid, {:dave_frame, opcode, seq, rest})
+    # Voice gateway v4: binary frames are <opcode::8, payload::binary> (no sequence number)
+    if byte_size(payload) >= 1 do
+      <<opcode::8, rest::binary>> = payload
+      Logger.debug("Voice WS: binary frame op=#{opcode} size=#{byte_size(payload)}b")
+      send(state.session_pid, {:dave_frame, opcode, 0, rest})
       {:ok, %{state | dave_active: true}}
     else
       Logger.warning("Voice WS: binary frame too short: #{byte_size(payload)}b")
