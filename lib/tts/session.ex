@@ -201,7 +201,7 @@ defmodule ArcaneVoice.TTS.Session do
     _ = ArcaneVoice.TTS.Dave.handle_commit(state.guild_id, transition_id, commit)
     if state.voice_ws_pid do
       Logger.info("Session: DAVE sending transition ready (op 23)")
-      send(state.voice_ws_pid, {:send_dave_binary, 23, <<transition_id::32>>})
+      send(state.voice_ws_pid, {:send_transition_ready, transition_id})
     end
     {:noreply, state}
   end
@@ -210,6 +210,10 @@ defmodule ArcaneVoice.TTS.Session do
     <<transition_id::32, welcome::binary>> = payload
     Logger.info("Session: DAVE welcome id=#{transition_id} (#{byte_size(welcome)}b)")
     _ = ArcaneVoice.TTS.Dave.handle_welcome(state.guild_id, transition_id, welcome)
+    if state.voice_ws_pid do
+      Logger.info("Session: DAVE sending transition ready (op 23)")
+      send(state.voice_ws_pid, {:send_transition_ready, transition_id})
+    end
     {:noreply, state}
   end
 
@@ -457,8 +461,8 @@ defmodule ArcaneVoice.TTS.Session do
           {:ok, %{payload: encrypted}} ->
             Logger.debug("Session: DAVE encrypt produced #{byte_size(encrypted)}b frame")
             cipher = @cipher_map[state.encryption_mode] || :aes_256_gcm
-            n4 = <<state.sequence::32>>
-            nonce_12byte = <<0::size(64), n4::binary>>
+            n4 = <<state.sequence::32-big>>
+            nonce_12byte = transport_nonce(n4)
             Logger.debug("Session: DAVE encrypt OTP27 arg4=encrypted(#{byte_size(encrypted)}b) arg5=header(#{byte_size(header)}b)")
             {ciphertext, tag} = :crypto.crypto_one_time_aead(
               cipher, state.secret_key, nonce_12byte, encrypted, header, true
@@ -479,8 +483,8 @@ defmodule ArcaneVoice.TTS.Session do
 
       state.secret_key ->
         cipher = @cipher_map[state.encryption_mode] || :aes_256_gcm
-        n4 = <<state.sequence::32>>
-        nonce_12byte = <<0::size(64), n4::binary>>
+        n4 = <<state.sequence::32-big>>
+        nonce_12byte = transport_nonce(n4)
         Logger.info("Session: encrypt OTP27_ORDER arg4=opus_frame(#{byte_size(opus_frame)}b) arg5=header(#{byte_size(header)}b) nonce=#{Base.encode16(nonce_12byte)}")
         {ciphertext, tag} = :crypto.crypto_one_time_aead(
           cipher, state.secret_key, nonce_12byte, opus_frame, header, true
@@ -530,4 +534,6 @@ defmodule ArcaneVoice.TTS.Session do
     if state.voice_ws_pid, do: send(state.voice_ws_pid, :disconnect)
     if state.dave_ready, do: ArcaneVoice.TTS.Dave.close(state.guild_id)
   end
+
+  defp transport_nonce(n4), do: <<n4::binary, 0::size(64)>>
 end

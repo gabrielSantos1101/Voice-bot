@@ -97,6 +97,16 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
     {:reply, {:binary, frame}, state}
   end
 
+  def websocket_info({:send_transition_ready, transition_id}, ws_req, state) do
+    payload = Jason.encode!(%{
+      op: 23,
+      d: %{transition_id: transition_id}
+    })
+
+    Logger.debug("Voice WS: sending DAVE transition ready id=#{transition_id}")
+    {:reply, {:text, payload}, state}
+  end
+
   def websocket_info(msg, _ws_req, state) do
     {:ok, state}
   end
