@@ -200,7 +200,7 @@ defmodule ArcaneVoice.TTS.Session do
   end
 
   def handle_info({:dave_frame, 29, _seq, payload}, state) do
-    <<transition_id::32, commit::binary>> = payload
+    <<transition_id::16, commit::binary>> = payload
     Logger.info("Session: DAVE announce_commit id=#{transition_id} (#{byte_size(commit)}b)")
     _ = ArcaneVoice.TTS.Dave.process_commit(state.guild_id, commit)
     if state.voice_ws_pid do
@@ -211,7 +211,7 @@ defmodule ArcaneVoice.TTS.Session do
   end
 
   def handle_info({:dave_frame, 30, _seq, payload}, state) do
-    <<transition_id::32, welcome::binary>> = payload
+    <<transition_id::16, welcome::binary>> = payload
     Logger.info("Session: DAVE welcome id=#{transition_id} (#{byte_size(welcome)}b)")
     _ = ArcaneVoice.TTS.Dave.process_welcome(state.guild_id, welcome)
     if state.voice_ws_pid do
