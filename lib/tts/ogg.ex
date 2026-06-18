@@ -6,68 +6,97 @@ defmodule ArcaneVoice.TTS.Ogg do
   defstruct packets: [], is_opuss: false, pending: <<>>
 
   def parse(data) do
-    case parse_pages(data, %__MODULE__{}) do
-      {:ok, result} ->
-        packets = if result.pending == <<>>, do: result.packets, else: [result.pending | result.packets]
-        {:ok, Enum.reverse(packets)}
+    result = parse_pages(data, %__MODULE__{})
+    case result do
+      {:ok, res} ->
+        {:ok, Enum.reverse(res.packets)}
       error -> error
     end
   end
 
   defp parse_pages(<<>>, acc) do
-    final_packets = if acc.pending != <<>>, do: [acc.pending | acc.packets], else: acc.packets
-    {:ok, %{acc | packets: final_packets, pending: <<>>}}
+    {:ok, finalize(acc)}
   end
-  defp parse_pages(<<"OggS", _rest::binary>> = data, acc) do
+
+  defp parse_pages(<<"OggS", _::binary>> = data, acc) do
     with {:ok, page, rest} <- take_page(data) do
       acc = process_page(page, acc)
       parse_pages(rest, acc)
     end
   end
-  defp parse_pages(_data, acc), do: {:ok, Enum.reverse(acc.packets)}
 
-  defp take_page(<<"OggS", version::8, header_type::8,
+  defp parse_pages(_data, acc) do
+    {:ok, Enum.reverse(acc.packets)}
+  end
+
+  defp take_page(<<"OggS", version::8, _header_type::8,
                    granule::64-little, _serial::32-little,
                    _page_seq::32-little, _crc::32-little,
-                   num_segments::8, rest::binary>>) when version == 0 do
-    <<segment_table::binary-size(num_segments), page_data::binary>> = rest
-    segment_lengths = for <<len::8 <- segment_table>>, do: len
-    total_len = Enum.sum(segment_lengths)
-    <<packets_data::binary-size(total_len), remaining::binary>> = page_data
-    {:ok, {header_type, granule, segment_lengths, packets_data}, remaining}
+                   num_segments::8, after_header::binary>>) when version == 0 do
+    <<seg_table::binary-size(num_segments), page_data::binary>> = after_header
+    seg_lengths = for <<len::8 <- seg_table>>, do: len
+    total = Enum.sum(seg_lengths)
+    <<seg_data::binary-size(total), remaining::binary>> = page_data
+    {:ok, {granule, seg_lengths, seg_data}, remaining}
   end
-  defp take_page(<<>>), do: :error
 
-  defp process_page({_header_type, _granule, lengths, data}, %__MODULE__{is_opuss: false} = acc) do
-    {packets, _pending} = group_into_packets(lengths, data, acc.pending)
+  defp take_page(_), do: :error
+
+  defp process_page({_granule, lengths, data}, %__MODULE__{is_opuss: false} = acc) do
+    {packets, _pend} = extract_packets(lengths, data, <<>>)
     case packets do
-      [first | _] when is_binary(first) ->
-        if String.starts_with?(first, "OpusHead"), do: %{acc | is_opuss: true, pending: <<>>}, else: acc
+      [first | _] when is_binary(first) and byte_size(first) >= 8 ->
+        head = binary_part(first, 0, 8)
+        if head == "OpusHead" do
+          Logger.info("Ogg: found OpusHead (#{byte_size(first)}b)")
+          %{acc | is_opuss: true}
+        else
+          acc
+        end
       _ ->
         acc
     end
   end
 
-  defp process_page({_header_type, _granule, lengths, data}, %__MODULE__{} = acc) do
-    {packets, pending} = group_into_packets(lengths, data, acc.pending)
-    audio_packets = Enum.reject(packets, &String.starts_with?(&1, "OpusTags"))
-    Logger.info("Ogg: page #{length(lengths)} segs → #{length(audio_packets)} pkts, pending=#{byte_size(pending)}b")
-    %{acc | packets: audio_packets ++ acc.packets, pending: pending}
+  defp process_page({granule, lengths, data}, %__MODULE__{} = acc) do
+    {packets, pending} = extract_packets(lengths, data, acc.pending)
+    audio = Enum.reject(packets, fn p ->
+      byte_size(p) >= 8 and binary_part(p, 0, 8) == "OpusTags"
+    end)
+    total_seg = Enum.sum(lengths)
+    Logger.info("Ogg: page granule=#{granule} segs=#{inspect(lengths)} total=#{total_seg}b " <>
+      "→ #{length(audio)} audio pkts (#{Enum.sum(Enum.map(audio, &byte_size/1))}b) pending=#{byte_size(pending)}b")
+    %{acc | packets: audio ++ acc.packets, pending: pending}
   end
 
-  defp group_into_packets(lengths, data, pending_acc) do
-    {packets, pending} = do_group(lengths, data, pending_acc, [])
-    {Enum.reverse(packets), pending}
+  # Build Opus packets from segment lengths.
+  # Segments with len < 255 terminate the current packet.
+  # Segments with len == 255 continue the packet.
+  defp extract_packets([], _data, pending), do: {[], pending}
+
+  defp extract_packets(lengths, data, pending_acc) do
+    {packets_rev, final_pending} = group(lengths, data, pending_acc, [])
+    {Enum.reverse(packets_rev), final_pending}
   end
 
-  defp do_group([], _rest, acc, packets), do: {packets, acc}
-  defp do_group([len | rest], data, acc, packets) do
+  defp group([], _data, acc, packets), do: {packets, acc}
+
+  defp group([len | rest], data, acc, packets) do
     <<seg::binary-size(len), remaining::binary>> = data
+    new_acc = <<acc::binary, seg::binary>>
     if len < 255 do
-      packet = <<acc::binary, seg::binary>>
-      do_group(rest, remaining, <<>>, [packet | packets])
+      group(rest, remaining, <<>>, [new_acc | packets])
     else
-      do_group(rest, remaining, <<acc::binary, seg::binary>>, packets)
+      group(rest, remaining, new_acc, packets)
+    end
+  end
+
+  defp finalize(%__MODULE__{packets: packets, pending: pending} = acc) do
+    if pending != <<>> do
+      Logger.info("Ogg: finalizing with #{byte_size(pending)}b pending")
+      %{acc | packets: [pending | packets]}
+    else
+      acc
     end
   end
 end

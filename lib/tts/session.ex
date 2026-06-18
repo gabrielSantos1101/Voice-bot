@@ -5,7 +5,7 @@ defmodule ArcaneVoice.TTS.Session do
 
   alias ArcaneVoice.TTS.Opus
 
-  @encryption_modes ["aead_aes256_gcm", "aead_aes256_gcm_rtpsize", "aead_xchacha20_poly1305_rtpsize"]
+  @encryption_modes ["aead_aes256_gcm_rtpsize", "aead_aes256_gcm", "aead_xchacha20_poly1305_rtpsize"]
 
   @cipher_map %{
     "aead_aes256_gcm_rtpsize" => :aes_256_gcm,
@@ -153,7 +153,8 @@ defmodule ArcaneVoice.TTS.Session do
     Logger.info("Session: encoding TTS for text: #{String.slice(state.text, 0, 50)}")
     case encode_tts(state) do
       {:ok, frames} ->
-        Logger.info("Session: encoded #{length(frames)} Opus frames")
+        total_bytes = Enum.reduce(frames, 0, fn {_ts, f}, acc -> acc + byte_size(f) end)
+        Logger.info("Session: encoded #{length(frames)} Opus frames, total #{total_bytes} bytes, avg #{div(total_bytes, max(length(frames), 1))}b")
         state = %{state | audio_frames: frames}
         send(state.voice_ws_pid, {:send_speaking, true})
         {:noreply, start_streaming(state)}
@@ -285,7 +286,10 @@ defmodule ArcaneVoice.TTS.Session do
   end
 
   defp start_streaming(state) do
-    Logger.info("Session: starting stream, #{length(state.audio_frames)} frames total")
+    {:ok, {local_ip, local_port}} = :inet.sockname(state.udp_socket)
+    Logger.info("Session: starting stream, #{length(state.audio_frames)} frames total, " <>
+      "socket=#{inspect(local_ip)}:#{local_port}, dest=#{state.voice_ip}:#{state.voice_port}, " <>
+      "encryption=#{state.encryption_mode}, ssrc=#{state.ssrc}")
     state = %{state | frame_index: 0}
     timer = Process.send_after(self(), :tick, 50)
     %{state | stream_timer: timer}
@@ -300,14 +304,18 @@ defmodule ArcaneVoice.TTS.Session do
     header = <<0x80, byte1, state.sequence::16-big, state.timestamp::32-big, state.ssrc::32-big>>
 
     cipher = @cipher_map[state.encryption_mode] || :aes_256_gcm
-    nonce = <<0::64, state.sequence::32>>
-    nonce_4 = <<state.sequence::32>>
+    nonce_suffix = if String.ends_with?(state.encryption_mode, "_rtpsize") do
+      binary_part(header, 2, 4)
+    else
+      <<state.sequence::32>>
+    end
+    nonce = <<0::64, nonce_suffix::binary>>
 
     {ciphertext, tag} = :crypto.crypto_one_time_aead(
       cipher, state.secret_key, nonce, opus_frame, header, true
     )
 
-    packet = header <> ciphertext <> tag <> nonce_4
+    packet = header <> ciphertext <> tag <> nonce_suffix
     result = :gen_udp.send(state.udp_socket,
                   to_charlist(state.voice_ip), state.voice_port,
                   packet)
