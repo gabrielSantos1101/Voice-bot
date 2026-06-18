@@ -410,6 +410,12 @@ defmodule ArcaneVoice.TTS.Session do
   defp start_streaming(state) do
     {:ok, {local_ip, local_port}} = :inet.sockname(state.udp_socket)
 
+    # log first 5 frame sizes to confirm audio data
+    first5 = Enum.take(state.audio_frames, 5)
+    sized = Enum.map(first5, fn {_ts, f} -> byte_size(f) end)
+    non_zero = Enum.count(sized, &(&1 > 3))
+    Logger.info("Session: first 5 frame sizes: #{inspect(sized)} (non-DTX: #{non_zero}/5)")
+
     # skip leading DTX/silence frames (3 bytes = <<0xF8, 0xFF, 0xFE>>)
     first_audio_idx =
       state.audio_frames
@@ -444,7 +450,7 @@ defmodule ArcaneVoice.TTS.Session do
             Logger.debug("Session: DAVE encrypt produced #{byte_size(encrypted)}b frame")
             cipher = @cipher_map[state.encryption_mode] || :aes_256_gcm
             n4 = <<state.sequence::32>>
-            nonce_12byte = <<n4::binary, 0::size(64)>>
+            nonce_12byte = <<0::size(64), n4::binary>>
             Logger.debug("Session: DAVE encrypt aad=#{byte_size(header)}b pt=#{byte_size(encrypted)}b nonce=#{Base.encode16(nonce_12byte)}")
             {ciphertext, tag} = :crypto.crypto_one_time_aead(
               cipher, state.secret_key, nonce_12byte, header, encrypted, true
@@ -466,7 +472,7 @@ defmodule ArcaneVoice.TTS.Session do
       state.secret_key ->
         cipher = @cipher_map[state.encryption_mode] || :aes_256_gcm
         n4 = <<state.sequence::32>>
-        nonce_12byte = <<n4::binary, 0::size(64)>>
+        nonce_12byte = <<0::size(64), n4::binary>>
         Logger.debug("Session: encrypt aad=#{byte_size(header)}b pt=#{byte_size(opus_frame)}b nonce=#{Base.encode16(nonce_12byte)}")
         {ciphertext, tag} = :crypto.crypto_one_time_aead(
           cipher, state.secret_key, nonce_12byte, header, opus_frame, true
@@ -476,6 +482,9 @@ defmodule ArcaneVoice.TTS.Session do
           header <> ciphertext <> tag <> n4
         else
           header <> ciphertext <> tag
+        end
+        if state.sequence == 0 do
+          Logger.info("Session: FIRST PACKET hex=#{Base.encode16(header)} #{Base.encode16(ciphertext)} #{Base.encode16(tag)} #{Base.encode16(n4)} full=#{Base.encode16(pkt)}")
         end
         if rem(state.frame_index, 50) == 0 do
           Logger.info("Session: frame #{state.frame_index} seq=#{state.sequence} ts=#{state.timestamp} " <>
