@@ -5,10 +5,11 @@ defmodule ArcaneVoice.TTS.Session do
 
   alias ArcaneVoice.TTS.Opus
 
-  @encryption_modes ["aead_aes256_gcm_rtpsize", "aead_xchacha20_poly1305_rtpsize"]
+  @encryption_modes ["aead_aes256_gcm", "aead_aes256_gcm_rtpsize", "aead_xchacha20_poly1305_rtpsize"]
 
   @cipher_map %{
     "aead_aes256_gcm_rtpsize" => :aes_256_gcm,
+    "aead_aes256_gcm" => :aes_256_gcm,
     "aead_xchacha20_poly1305_rtpsize" => :chacha20_poly1305
   }
 
@@ -141,7 +142,7 @@ defmodule ArcaneVoice.TTS.Session do
   end
 
   def handle_info({:session_description, mode, secret_key}, state) do
-    Logger.info("Session: got session description, mode=#{mode}")
+    Logger.info("Session: got session description, mode=#{mode}, key_size=#{byte_size(secret_key)}")
     state = %{state | encryption_mode: mode, secret_key: secret_key}
 
     send(self(), :encode_and_stream)
@@ -293,8 +294,10 @@ defmodule ArcaneVoice.TTS.Session do
   defp send_frame(state) do
     {_ts, opus_frame} = Enum.at(state.audio_frames, state.frame_index)
     frame_size = byte_size(opus_frame)
-    Logger.debug("Session: send_frame idx=#{state.frame_index} size=#{frame_size} seq=#{state.sequence} ts=#{state.timestamp}")
-    header = <<0x80, 0x78, state.sequence::16-big, state.timestamp::32-big, state.ssrc::32-big>>
+    marker_bit = if state.frame_index == 0, do: 1, else: 0
+    Logger.debug("Session: send_frame idx=#{state.frame_index} size=#{frame_size} seq=#{state.sequence} ts=#{state.timestamp} marker=#{marker_bit}")
+    byte1 = if marker_bit == 1, do: 0xF8, else: 0x78
+    header = <<0x80, byte1, state.sequence::16-big, state.timestamp::32-big, state.ssrc::32-big>>
 
     cipher = @cipher_map[state.encryption_mode] || :aes_256_gcm
     nonce = <<0::64, state.sequence::32>>
