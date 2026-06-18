@@ -5,6 +5,7 @@ defmodule ArcaneVoice.TTS do
 
   @default_idle_timeout_ms 300_000
   @default_voice "pt-BR-FranciscaNeural"
+  @max_text_length 50
 
   @voices [
     %{
@@ -170,6 +171,16 @@ defmodule ArcaneVoice.TTS do
     {:noreply, dequeue_next(state, guild_id)}
   end
 
+  def handle_info({:stream_started, guild_id, pid}, state) do
+    case Map.get(state.queues, guild_id, []) do
+      [next | _] ->
+        send(pid, {:prefetch, next.text})
+      [] ->
+        :ok
+    end
+    {:noreply, state}
+  end
+
   def handle_info({:session_idle, guild_id, pid}, state) do
     if Map.get(state.sessions, guild_id) == pid do
       case Map.get(state.queues, guild_id, []) do
@@ -223,6 +234,7 @@ defmodule ArcaneVoice.TTS do
     guild_id = data["guild_id"]
     user_id = get_in(data, ["member", "user", "id"]) || data["user"]["id"]
     text = get_text_option(cmd_data)
+    text = if text, do: String.slice(text, 0, @max_text_length), else: nil
     interaction_token = data["token"]
     settings = settings_for(state, guild_id)
 

@@ -36,6 +36,7 @@ defmodule ArcaneVoice.TTS.Session do
     dave_ready dave_initialized dave_active
     first_sent
     encoding_task stream_after_encode
+    prefetched_text prefetched_frames prefetch_task
     voice idle_timeout_ms idle_timer idle
   ]a
 
@@ -81,6 +82,30 @@ defmodule ArcaneVoice.TTS.Session do
     {:stop, :normal, state}
   end
 
+  def handle_info({:prefetch, text}, state) do
+    if state.prefetched_text == text and state.prefetched_frames != nil do
+      {:noreply, state}
+    else
+      caller = self()
+      Logger.info("Session: prefetching next text: #{String.slice(text, 0, 50)}")
+      {:ok, task} = Task.start(fn ->
+        result = encode_tts(%{state | text: text})
+        send(caller, {:prefetch_encoded, text, result})
+      end)
+      {:noreply, %{state | prefetch_task: task}}
+    end
+  end
+
+  def handle_info({:prefetch_encoded, text, {:ok, frames}}, state) do
+    Logger.info("Session: prefetched #{length(frames)} frames for next text")
+    {:noreply, %{state | prefetched_text: text, prefetched_frames: frames, prefetch_task: nil}}
+  end
+
+  def handle_info({:prefetch_encoded, _text, {:error, reason}}, state) do
+    Logger.warning("Session: prefetch encoding failed: #{inspect(reason)}")
+    {:noreply, %{state | prefetch_task: nil}}
+  end
+
   def handle_info({:play_next, info}, state) do
     Logger.info("Session: reusing voice connection for guild #{state.guild_id}")
     if state.idle_timer, do: Process.cancel_timer(state.idle_timer)
@@ -98,12 +123,24 @@ defmodule ArcaneVoice.TTS.Session do
         idle: false
       })
 
-    if state.voice_ws_pid && state.secret_key && (state.dave_ready || !state.dave_active) do
-      send(self(), :encode_and_stream)
+    state = if state.prefetched_text == info.text and state.prefetched_frames do
+      Logger.info("Session: using prefetched #{length(state.prefetched_frames)} frames for \"#{String.slice(info.text, 0, 50)}\"")
+      %{state | audio_frames: state.prefetched_frames, prefetched_text: nil, prefetched_frames: nil}
+    else
+      state
+    end
+
+    if state.audio_frames do
+      send(self(), :stream_when_ready)
       {:noreply, state}
     else
-      send(:discord_bot, {:voice_state_update, state.guild_id, state.channel_id, false, false})
-      {:noreply, state}
+      if state.voice_ws_pid && state.secret_key && (state.dave_ready || !state.dave_active) do
+        send(self(), :encode_and_stream)
+        {:noreply, state}
+      else
+        send(:discord_bot, {:voice_state_update, state.guild_id, state.channel_id, false, false})
+        {:noreply, state}
+      end
     end
   end
 
@@ -364,6 +401,9 @@ defmodule ArcaneVoice.TTS.Session do
     if state.frame_index < total do
       Logger.debug("Session: sending frame #{state.frame_index}/#{total}")
       state = send_frame(state)
+      if state.first_sent and state.tts_pid do
+        send(state.tts_pid, {:stream_started, state.guild_id, self()})
+      end
       timer = Process.send_after(self(), :tick, 20)
       {:noreply, %{state | stream_timer: timer, frame_index: state.frame_index + 1,
                            sequence: state.sequence + 1, timestamp: state.timestamp + 960,
@@ -642,6 +682,7 @@ defmodule ArcaneVoice.TTS.Session do
       stream_timer: nil,
       encoding_task: nil,
       stream_after_encode: false,
+      prefetch_task: nil,
       first_sent: false
     }
   end
