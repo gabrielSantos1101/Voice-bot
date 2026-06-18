@@ -5,7 +5,7 @@ defmodule ArcaneVoice.TTS do
 
   @default_idle_timeout_ms 300_000
   @default_voice "pt-BR-FranciscaNeural"
-  @max_text_length 50
+  @max_text_length 300
 
   @voices [
     %{
