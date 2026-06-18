@@ -56,7 +56,13 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
         Logger.debug("Voice WS: binary frame op=#{opcode} seq=#{inspect(seq)} size=#{byte_size(payload)}b")
         send(state.session_pid, {:dave_frame, opcode, seq, rest})
         state = if is_integer(seq), do: %{state | dave_seq: seq}, else: state
-        {:ok, %{state | dave_active: true}}
+        state = %{state | dave_active: true}
+
+        if is_integer(seq) do
+          {:reply, {:text, heartbeat_payload(state)}, state}
+        else
+          {:ok, state}
+        end
 
       :error ->
         Logger.warning("Voice WS: binary frame too short: #{byte_size(payload)}b")
@@ -73,10 +79,8 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
   end
 
   def websocket_info(:heartbeat_tick, _ws_req, state) do
-    nonce = System.system_time(:millisecond)
-    payload = Jason.encode!(%{op: 3, d: %{t: nonce, seq_ack: state.dave_seq}})
     timer = Process.send_after(self(), :heartbeat_tick, state.heartbeat_interval)
-    {:reply, {:text, payload}, %{state | heartbeat_timer: timer}}
+    {:reply, {:text, heartbeat_payload(state)}, %{state | heartbeat_timer: timer}}
   end
 
   def websocket_info(:disconnect, _ws_req, state) do
@@ -196,5 +200,9 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
       {:ok, %{"seq" => seq}} when is_integer(seq) -> %{state | dave_seq: seq}
       _ -> state
     end
+  end
+
+  defp heartbeat_payload(state) do
+    Jason.encode!(%{op: 3, d: %{t: System.system_time(:millisecond), seq_ack: state.dave_seq}})
   end
 end
