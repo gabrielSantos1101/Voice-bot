@@ -53,12 +53,17 @@ lib/tts/
 - Qualidade superior ao TTS padrão do Discord (robótico)
 - Alternativas viáveis: OpenAI TTS (pago), ElevenLabs (pago)
 
-**2. Protocolo de Voz do Discord (v4)**
+**2. Protocolo de Voz do Discord (v8 com DAVE E2EE)**
 
-- Implementação manual do Voice Gateway WebSocket + UDP
-- Criptografia via `:crypto.crypto_one_time_aead` (OTP nativo)
-- Modo `chacha20_poly1305` (fallback para `aead_aes256_gcm`)
-- Sem dependências externas para criptografia
+- Implementação manual do Voice Gateway WebSocket v8 + UDP
+- DAVE (Discord Audio & Video End-to-End Encryption) é obrigatório desde Março 2026
+- Criptografia via `davey` (biblioteca Python/Rust, MLS) + `:crypto.crypto_one_time_aead` (OTP nativo)
+- Modo `aead_aes256_gcm_rtpsize` (preferido) ou `aead_xchacha20_poly1305_rtpsize` (fallback)
+- Handshake DAVE: `key_package` enviado no Session Description (op 4), antes do `external_sender` (op 25)
+- Frames DAVE incoming: v8 (`<<seq::16, opcode::8, payload>>`)
+- Frames DAVE outgoing: v4 (`<<opcode::8, payload>>`)
+- `transition_id` em ops 27/29/30 é **16-bit** — erro comum é parsear como 32-bit, corrompendo o commit/welcome e impedindo o MLS de se estabelecer (`session.ready = false`)
+- Dependência externa: `davey` (PyPI), compilado como wheel nativo Rust
 
 **3. Pipeline de Áudio**
 
@@ -66,7 +71,7 @@ lib/tts/
 Edge-TTS → MP3 → FFmpeg (decode) → PCM s16le 48kHz mono
   → FFmpeg + libopus (encode) → Ogg Opus
     → Parser Ogg → frames Opus individuais (20ms)
-      → RTP header + ChaCha20-Poly1305 → UDP
+      → davey.encrypt_opus() → RTP header + ciphertext + nonce → UDP
 ```
 
 **4. Por que FFmpeg + Ogg parser em vez de libopus NIF?**
