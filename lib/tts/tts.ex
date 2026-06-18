@@ -111,7 +111,7 @@ defmodule ArcaneVoice.TTS do
 
   @impl true
   def handle_call({:get_user_voice_channel, guild_id, user_id}, _from, state) do
-    channel_id = get_in(state, [:voice_states, guild_id, user_id, "channel_id"])
+    channel_id = get_in(state.voice_states, [guild_id, user_id, "channel_id"])
     {:reply, channel_id, state}
   end
 
@@ -138,7 +138,7 @@ defmodule ArcaneVoice.TTS do
         state
 
       true ->
-        channel_id = get_in(state, [:voice_states, guild_id, user_id, "channel_id"])
+        channel_id = get_in(state.voice_states, [guild_id, user_id, "channel_id"])
 
         if is_nil(channel_id) do
           respond_interaction(data, %{

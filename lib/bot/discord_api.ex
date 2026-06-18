@@ -4,6 +4,9 @@ defmodule ArcaneVoice.DiscordBot.DiscordApi do
   @api_host "https://discord.com/api/v10"
 
   def register_guild_commands(application_id, guild_id) do
+    # Remove any stale global commands first to avoid duplicates
+    delete_global_commands(application_id)
+
     url = "#{@api_host}/applications/#{application_id}/guilds/#{guild_id}/commands"
 
     body = [
@@ -36,36 +39,17 @@ defmodule ArcaneVoice.DiscordBot.DiscordApi do
     end
   end
 
-  def register_commands(application_id) do
+  defp delete_global_commands(application_id) do
     url = "#{@api_host}/applications/#{application_id}/commands"
 
-    body = [
-      %{
-        "name" => "tts",
-        "description" => "Speak text in your current voice channel",
-        "type" => 1,
-        "options" => [
-          %{
-            "name" => "text",
-            "description" => "The text to speak",
-            "type" => 3,
-            "required" => true
-          }
-        ]
-      }
-    ]
-
-    case :put
-         |> Finch.build(url, headers(), Jason.encode!(body))
+    case :delete
+         |> Finch.build(url, headers())
          |> Finch.request(ArcaneVoice.Finch) do
       {:ok, %{status: status}} when status in 200..299 ->
-        Logger.info("Slash commands registered (status #{status})")
+        Logger.info("Global commands cleared (status #{status})")
 
-      {:ok, %{status: status, body: body}} ->
-        Logger.warning("Command registration failed (status #{status}): #{body}")
-
-      {:error, reason} ->
-        Logger.error("Command registration error: #{inspect(reason)}")
+      _ ->
+        :ok
     end
   end
 
