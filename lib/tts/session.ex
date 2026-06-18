@@ -159,7 +159,8 @@ defmodule ArcaneVoice.TTS.Session do
       Logger.info("Session: #{if state.dave_ready, do: "DAVE ready, ", else: "no DAVE, "}starting TTS encoding")
       send(self(), :encode_and_stream)
     else
-      Logger.info("Session: waiting for DAVE handshake before starting stream")
+      Logger.info("Session: waiting for DAVE handshake before starting stream; encoding TTS for debug/cache")
+      send(self(), :encode_only)
     end
 
     {:noreply, state}
@@ -230,7 +231,7 @@ defmodule ArcaneVoice.TTS.Session do
 
     if state.secret_key do
       Logger.info("Session: DAVE ready, starting stream")
-      send(self(), :encode_and_stream)
+      send(self(), :stream_when_ready)
     else
       Logger.info("Session: DAVE ready, waiting for session description")
     end
@@ -279,28 +280,55 @@ defmodule ArcaneVoice.TTS.Session do
 
   # ── Streaming ──
 
-  def handle_info(:encode_and_stream, state) do
-    Logger.info("Session: encoding TTS for text: #{String.slice(state.text, 0, 50)}")
-    case encode_tts(state) do
-      {:ok, frames} ->
-        total_bytes = Enum.reduce(frames, 0, fn {_ts, f}, acc -> acc + byte_size(f) end)
-        non_dtx = Enum.count(frames, fn {_ts, f} -> byte_size(f) > 3 end)
-        first5_sizes = frames |> Enum.take(5) |> Enum.map(fn {_ts, f} -> byte_size(f) end) |> inspect()
-        Logger.info("Session: encoded #{length(frames)} Opus frames, #{non_dtx} non-DTX, total #{total_bytes}b, avg #{div(total_bytes, max(length(frames), 1))}b, first5: #{first5_sizes}")
-        state = %{state | audio_frames: frames}
-        if state.voice_ws_pid do
-          Logger.info("Session: SENDING SPEAKING=1 NOW")
-          send(state.voice_ws_pid, {:send_speaking, true})
-        else
-          Logger.error("Session: voice_ws_pid is nil, CANNOT send speaking=1")
-        end
-        Process.send_after(self(), :do_stream, 30)
-        {:noreply, state}
+  def handle_info(:encode_only, state) do
+    if state.audio_frames do
+      {:noreply, state}
+    else
+      Logger.info("Session: encoding TTS for debug/cache: #{String.slice(state.text, 0, 50)}")
 
-      {:error, reason} ->
-        Logger.error("Session: TTS encoding failed: #{inspect(reason)}")
-        {:stop, :tts_failed, state}
+      case encode_tts(state) do
+        {:ok, frames} ->
+          log_encoded_frames(frames)
+          {:noreply, %{state | audio_frames: frames}}
+
+        {:error, reason} ->
+          Logger.error("Session: TTS encoding failed: #{inspect(reason)}")
+          {:stop, :tts_failed, state}
+      end
     end
+  end
+
+  def handle_info(:encode_and_stream, state) do
+    if state.audio_frames do
+      send(self(), :stream_when_ready)
+      {:noreply, state}
+    else
+      Logger.info("Session: encoding TTS for text: #{String.slice(state.text, 0, 50)}")
+
+      case encode_tts(state) do
+        {:ok, frames} ->
+          log_encoded_frames(frames)
+          state = %{state | audio_frames: frames}
+          send(self(), :stream_when_ready)
+          {:noreply, state}
+
+        {:error, reason} ->
+          Logger.error("Session: TTS encoding failed: #{inspect(reason)}")
+          {:stop, :tts_failed, state}
+      end
+    end
+  end
+
+  def handle_info(:stream_when_ready, state) do
+    if state.voice_ws_pid do
+      Logger.info("Session: SENDING SPEAKING=1 NOW")
+      send(state.voice_ws_pid, {:send_speaking, true})
+    else
+      Logger.error("Session: voice_ws_pid is nil, CANNOT send speaking=1")
+    end
+
+    Process.send_after(self(), :do_stream, 30)
+    {:noreply, state}
   end
 
   def handle_info(:do_stream, state) do
@@ -429,6 +457,17 @@ defmodule ArcaneVoice.TTS.Session do
         Logger.error("Session: TTS synthesis timed out after 30s")
         {:error, "TTS synthesis timed out"}
     end
+  end
+
+  defp log_encoded_frames(frames) do
+    total_bytes = Enum.reduce(frames, 0, fn {_ts, frame}, acc -> acc + byte_size(frame) end)
+    non_dtx = Enum.count(frames, fn {_ts, frame} -> byte_size(frame) > 3 end)
+    first5_sizes = frames |> Enum.take(5) |> Enum.map(fn {_ts, frame} -> byte_size(frame) end) |> inspect()
+
+    Logger.info(
+      "Session: encoded #{length(frames)} Opus frames, #{non_dtx} non-DTX, total #{total_bytes}b, " <>
+        "avg #{div(total_bytes, max(length(frames), 1))}b, first5: #{first5_sizes}"
+    )
   end
 
   defp start_streaming(state) do
