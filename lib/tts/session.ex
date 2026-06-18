@@ -444,7 +444,8 @@ defmodule ArcaneVoice.TTS.Session do
             Logger.debug("Session: DAVE encrypt produced #{byte_size(encrypted)}b frame")
             cipher = @cipher_map[state.encryption_mode] || :aes_256_gcm
             n4 = <<state.sequence::32>>
-            nonce_12byte = <<0::size(64), n4::binary>>
+            nonce_12byte = <<n4::binary, 0::size(64)>>
+            Logger.debug("Session: DAVE encrypt aad=#{byte_size(header)}b pt=#{byte_size(encrypted)}b nonce=#{Base.encode16(nonce_12byte)}")
             {ciphertext, tag} = :crypto.crypto_one_time_aead(
               cipher, state.secret_key, nonce_12byte, header, encrypted, true
             )
@@ -465,7 +466,8 @@ defmodule ArcaneVoice.TTS.Session do
       state.secret_key ->
         cipher = @cipher_map[state.encryption_mode] || :aes_256_gcm
         n4 = <<state.sequence::32>>
-        nonce_12byte = <<0::size(64), n4::binary>>
+        nonce_12byte = <<n4::binary, 0::size(64)>>
+        Logger.debug("Session: encrypt aad=#{byte_size(header)}b pt=#{byte_size(opus_frame)}b nonce=#{Base.encode16(nonce_12byte)}")
         {ciphertext, tag} = :crypto.crypto_one_time_aead(
           cipher, state.secret_key, nonce_12byte, header, opus_frame, true
         )
@@ -477,7 +479,7 @@ defmodule ArcaneVoice.TTS.Session do
         end
         if rem(state.frame_index, 50) == 0 do
           Logger.info("Session: frame #{state.frame_index} seq=#{state.sequence} ts=#{state.timestamp} " <>
-            "nonce=#{Base.encode16(nonce_12byte)} ct=#{byte_size(ciphertext)} pkt=#{byte_size(pkt)}b")
+            "nonce=#{Base.encode16(nonce_12byte)} aad=#{byte_size(header)}b pt=#{byte_size(opus_frame)}b ct=#{byte_size(ciphertext)}b pkt=#{byte_size(pkt)}b")
         end
         pkt
 

@@ -1,3 +1,5 @@
+ARG CACHE_BUST=1
+
 FROM elixir:1.19-alpine AS build
 
 RUN apk add git
