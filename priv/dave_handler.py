@@ -13,6 +13,14 @@ sessions = {}
 handlers = {}
 
 
+def discord_payload(packet, expected_opcode):
+    if len(packet) >= 3 and packet[2] == expected_opcode:
+        return packet[3:]
+    if len(packet) >= 1 and packet[0] == expected_opcode:
+        return packet[1:]
+    return packet
+
+
 def cmd_init(data):
     gid = data["guild_id"]
     uid = data["user_id"]
@@ -25,7 +33,7 @@ def cmd_prepare_epoch(data):
     epoch = data.get("epoch", 1)
     session = sessions[gid]
     key_package = session.prepare_epoch(epoch)
-    payload_b64 = base64.b64encode(key_package).decode()
+    payload_b64 = base64.b64encode(discord_payload(key_package, 26)).decode()
     return {"type": "response", "guild_id": gid, "opcode": 26, "payload": payload_b64}
 
 
@@ -43,7 +51,7 @@ def cmd_handle_proposals(data):
     session = sessions[gid]
     result = session.handle_proposals(bytes([0, 0, 27]) + payload)
     if result:
-        payload_b64 = base64.b64encode(result).decode()
+        payload_b64 = base64.b64encode(discord_payload(result, 28)).decode()
         return {"type": "response", "guild_id": gid, "opcode": 28, "payload": payload_b64}
     return {"type": "ok"}
 
