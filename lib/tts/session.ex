@@ -26,6 +26,7 @@ defmodule ArcaneVoice.TTS.Session do
     discovered_ip discovered_port interaction_token
     voice_ip voice_port tts_pid timeout_timer
     dave_ready dave_initialized dave_active
+    first_sent
   ]a
 
   def start_link(opts) do
@@ -269,7 +270,7 @@ defmodule ArcaneVoice.TTS.Session do
         else
           Logger.error("Session: voice_ws_pid is nil, CANNOT send speaking=1")
         end
-        Process.send_after(self(), :do_stream, 100)
+        Process.send_after(self(), :do_stream, 30)
         {:noreply, state}
 
       {:error, reason} ->
@@ -294,7 +295,8 @@ defmodule ArcaneVoice.TTS.Session do
       state = send_frame(state)
       timer = Process.send_after(self(), :tick, 20)
       {:noreply, %{state | stream_timer: timer, frame_index: state.frame_index + 1,
-                           sequence: state.sequence + 1, timestamp: state.timestamp + 960}}
+                           sequence: state.sequence + 1, timestamp: state.timestamp + 960,
+                           first_sent: false}}
     else
       Logger.info("Session: all #{total} frames sent, finishing playback")
       finish_playback(state)
@@ -422,7 +424,7 @@ defmodule ArcaneVoice.TTS.Session do
       "socket=#{inspect(local_ip)}:#{local_port}, dest=#{state.voice_ip}:#{state.voice_port}, " <>
       "encryption=#{state.encryption_mode}, ssrc=#{state.ssrc}")
 
-    state = %{state | frame_index: first_audio_idx, timestamp: first_audio_idx * 960}
+    state = %{state | frame_index: first_audio_idx, timestamp: first_audio_idx * 960, first_sent: true}
     timer = Process.send_after(self(), :tick, 50)
     %{state | stream_timer: timer}
   end
@@ -430,7 +432,7 @@ defmodule ArcaneVoice.TTS.Session do
   defp send_frame(state) do
     {_ts, opus_frame} = Enum.at(state.audio_frames, state.frame_index)
     frame_size = byte_size(opus_frame)
-    marker_bit = if state.frame_index == 0, do: 1, else: 0
+    marker_bit = if state.first_sent, do: 1, else: 0
     Logger.debug("Session: send_frame idx=#{state.frame_index} size=#{frame_size} seq=#{state.sequence} ts=#{state.timestamp} marker=#{marker_bit}")
     byte1 = if marker_bit == 1, do: 0xF8, else: 0x78
     header = <<0x80, byte1, state.sequence::16-big, state.timestamp::32-big, state.ssrc::32-big>>
