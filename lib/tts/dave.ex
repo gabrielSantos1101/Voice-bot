@@ -17,8 +17,8 @@ defmodule ArcaneVoice.TTS.Dave do
     GenServer.call(__MODULE__, {:init, guild_id, user_id}, 30_000)
   end
 
-  def prepare_epoch(guild_id) do
-    GenServer.call(__MODULE__, {:prepare_epoch, guild_id}, 30_000)
+  def prepare_epoch(guild_id, epoch \\ 1) do
+    GenServer.call(__MODULE__, {:prepare_epoch, guild_id, epoch}, 30_000)
   end
 
   def handle_external_sender(guild_id, payload) do
@@ -69,8 +69,8 @@ defmodule ArcaneVoice.TTS.Dave do
     {:noreply, queue_cmd(%{cmd: "init", guild_id: guild_id, user_id: user_id}, from, state)}
   end
 
-  def handle_call({:prepare_epoch, guild_id}, from, state) do
-    {:noreply, queue_cmd(%{cmd: "prepare_epoch", guild_id: guild_id, epoch: 1}, from, state)}
+  def handle_call({:prepare_epoch, guild_id, epoch}, from, state) do
+    {:noreply, queue_cmd(%{cmd: "prepare_epoch", guild_id: guild_id, epoch: epoch}, from, state)}
   end
 
   def handle_call({:handle_external_sender, guild_id, payload}, from, state) do

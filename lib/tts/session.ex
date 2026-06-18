@@ -249,11 +249,12 @@ defmodule ArcaneVoice.TTS.Session do
     user_id = String.to_integer(state.bot_user_id)
 
     case ArcaneVoice.TTS.Dave.init_session(state.guild_id, user_id) do
+      :ok -> :ok
       {:ok, _} -> :ok
       other -> Logger.warning("Session: Dave init: #{inspect(other)}")
     end
 
-    case ArcaneVoice.TTS.Dave.prepare_epoch(state.guild_id) do
+    case ArcaneVoice.TTS.Dave.prepare_epoch(state.guild_id, epoch) do
       {:ok, %{opcode: 26, payload: key_package}} ->
         Logger.info("Session: DAVE sending key_package (#{byte_size(key_package)}b)")
         send(state.voice_ws_pid, {:send_dave_binary, 26, key_package})

@@ -33,7 +33,7 @@ def cmd_handle_external_sender(data):
     gid = data["guild_id"]
     payload = base64.b64decode(data["payload"])
     session = sessions[gid]
-    session.handle_external_sender_package(payload)
+    session.handle_external_sender_package(bytes([25]) + payload)
     return {"type": "ok"}
 
 
@@ -41,7 +41,7 @@ def cmd_handle_proposals(data):
     gid = data["guild_id"]
     payload = base64.b64decode(data["payload"])
     session = sessions[gid]
-    result = session.handle_proposals(payload)
+    result = session.handle_proposals(bytes([27]) + payload)
     if result:
         payload_b64 = base64.b64encode(result).decode()
         return {"type": "response", "guild_id": gid, "opcode": 28, "payload": payload_b64}
