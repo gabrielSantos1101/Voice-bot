@@ -12,9 +12,8 @@ defmodule ArcaneVoice.TTS.Opus do
 
   def encode(pcm_data, bitrate \\ 64_000) do
     File.mkdir_p!(@debug_dir)
-    ts = System.system_time(:millisecond)
     tmp_in = tmp_path("pcm")
-    tmp_out = Path.join(@debug_dir, "tts_#{ts}.opus")
+    tmp_out = Path.join(@debug_dir, "last.opus")
     File.write!(tmp_in, pcm_data)
 
     args = [
