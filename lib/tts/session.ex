@@ -13,7 +13,7 @@ defmodule ArcaneVoice.TTS.Session do
     "aead_xchacha20_poly1305_rtpsize" => :chacha20_poly1305
   }
 
-  @timeout_ms 15_000
+  @timeout_ms 60_000
 
   defstruct ~w[
     guild_id channel_id text bot_user_id
