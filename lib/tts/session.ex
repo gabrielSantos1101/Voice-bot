@@ -1,6 +1,9 @@
 defmodule ArcaneVoice.TTS.Session do
   @moduledoc false
 
+  # BUILD_ID: e2a70aa+1-fix-otp27-decrypt (change this each commit to force Docker rebuild)
+  @build_id "2026-06-18-otp27-fix"
+
   require Logger
 
   alias ArcaneVoice.TTS.Opus
@@ -48,7 +51,7 @@ defmodule ArcaneVoice.TTS.Session do
 
   @impl true
   def init(state) do
-    Logger.info("TTS session started for guild #{state.guild_id}, channel #{state.channel_id}")
+    Logger.info("TTS session started (build=#{@build_id}) for guild #{state.guild_id}, channel #{state.channel_id}")
     send(:discord_bot, {:get_bot_user_id, self()})
     Process.send_after(self(), :fetch_bot_id, 500)
     {:ok, state}
@@ -475,19 +478,20 @@ defmodule ArcaneVoice.TTS.Session do
         cipher = @cipher_map[state.encryption_mode] || :aes_256_gcm
         n4 = <<state.sequence::32>>
         nonce_12byte = <<0::size(64), n4::binary>>
-        Logger.debug("Session: encrypt aad=#{byte_size(header)}b pt=#{byte_size(opus_frame)}b nonce=#{Base.encode16(nonce_12byte)}")
+        Logger.info("Session: encrypt AAD=header(#{byte_size(header)}b) PT=opus_frame(#{byte_size(opus_frame)}b) nonce=#{Base.encode16(nonce_12byte)}")
         {ciphertext, tag} = :crypto.crypto_one_time_aead(
           cipher, state.secret_key, nonce_12byte, header, opus_frame, true
         )
+        Logger.info("Session: encrypt RESULT ct=#{byte_size(ciphertext)}b tag=#{byte_size(tag)}b")
 
+        # OTP 27 decrypt API: separate ciphertext and tag args (not ct<>tag, false)
         try do
           {:ok, decrypted} = :crypto.crypto_one_time_aead(
-            cipher, state.secret_key, nonce_12byte, header, ciphertext <> tag, false
+            cipher, state.secret_key, nonce_12byte, header, ciphertext, tag
           )
           if decrypted != opus_frame do
             Logger.warning("Session: encrypt VERIFY MISMATCH ct=#{byte_size(ciphertext)}b " <>
-              "got=#{byte_size(decrypted)}b expected=#{byte_size(opus_frame)}b " <>
-              "aad=#{byte_size(header)}b pt=#{byte_size(opus_frame)}b")
+              "got=#{byte_size(decrypted)}b expected=#{byte_size(opus_frame)}b")
           end
         rescue
           e -> Logger.error("Session: encrypt VERIFY ERROR: #{inspect(e)}")
