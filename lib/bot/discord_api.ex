@@ -42,14 +42,17 @@ defmodule ArcaneVoice.DiscordBot.DiscordApi do
   defp delete_global_commands(application_id) do
     url = "#{@api_host}/applications/#{application_id}/commands"
 
-    case :delete
-         |> Finch.build(url, headers())
+    case :put
+         |> Finch.build(url, headers(), Jason.encode!([]))
          |> Finch.request(ArcaneVoice.Finch) do
       {:ok, %{status: status}} when status in 200..299 ->
         Logger.info("Global commands cleared (status #{status})")
 
-      _ ->
-        :ok
+      {:ok, %{status: status, body: body}} ->
+        Logger.warning("Global command cleanup failed (status #{status}): #{body}")
+
+      {:error, reason} ->
+        Logger.error("Global command cleanup error: #{inspect(reason)}")
     end
   end
 
