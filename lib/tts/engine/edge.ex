@@ -8,7 +8,8 @@ defmodule ArcaneVoice.TTS.Engine.Edge do
   Voices:
     - pt-BR-FranciscaNeural (default)
     - pt-BR-AntonioNeural
-    - pt-BR-BrendaNeural
+    - pt-PT-RaquelNeural
+    - pt-PT-DuarteNeural
     - en-US-JennyNeural
     - en-US-GuyNeural
     - See https://speech.microsoft.com/portal/voicegallery

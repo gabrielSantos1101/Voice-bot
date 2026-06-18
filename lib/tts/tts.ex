@@ -19,11 +19,6 @@ defmodule ArcaneVoice.TTS do
       description: "Português do Brasil, voz masculina"
     },
     %{
-      label: "Brasil - Brenda",
-      value: "pt-BR-BrendaNeural",
-      description: "Português do Brasil, voz feminina"
-    },
-    %{
       label: "Portugal - Raquel",
       value: "pt-PT-RaquelNeural",
       description: "Português de Portugal, voz feminina"

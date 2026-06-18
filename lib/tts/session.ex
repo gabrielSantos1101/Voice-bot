@@ -483,13 +483,17 @@ defmodule ArcaneVoice.TTS.Session do
   end
 
   defp encode_tts(state) do
+    provider = Application.get_env(:arcane_voice, :tts_provider, :edge)
+    fallback_voice = Application.get_env(:arcane_voice, :tts_voice, "pt-BR-FranciscaNeural")
+    selected_voice = state.voice || fallback_voice
+
     engine = ArcaneVoice.TTS.Engine.build(
-      provider: Application.get_env(:arcane_voice, :tts_provider, :edge),
-      voice: state.voice || Application.get_env(:arcane_voice, :tts_voice)
+      provider: provider,
+      voice: selected_voice
     )
 
     task = Task.async(fn ->
-      case ArcaneVoice.TTS.Engine.synthesize(engine, state.text) do
+      case synthesize_with_fallback(engine, state.text, selected_voice, fallback_voice, provider) do
         {:ok, pcm} ->
           pcm_size = byte_size(pcm)
           Logger.info("Session: PCM synthesized, size=#{pcm_size} bytes (#{div(pcm_size, 96000)}s approx)")
@@ -515,6 +519,29 @@ defmodule ArcaneVoice.TTS.Session do
       nil ->
         Logger.error("Session: TTS synthesis timed out after 30s")
         {:error, "TTS synthesis timed out"}
+    end
+  end
+
+  defp synthesize_with_fallback(engine, text, selected_voice, fallback_voice, provider) do
+    case ArcaneVoice.TTS.Engine.synthesize(engine, text) do
+      {:ok, pcm} ->
+        {:ok, pcm}
+
+      {:error, reason} when selected_voice != fallback_voice ->
+        Logger.warning(
+          "Session: TTS voice #{selected_voice} failed, falling back to #{fallback_voice}: #{inspect(reason)}"
+        )
+
+        fallback_engine =
+          ArcaneVoice.TTS.Engine.build(
+            provider: provider,
+            voice: fallback_voice
+          )
+
+        ArcaneVoice.TTS.Engine.synthesize(fallback_engine, text)
+
+      error ->
+        error
     end
   end
 
