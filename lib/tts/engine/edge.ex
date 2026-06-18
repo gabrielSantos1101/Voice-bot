@@ -1,4 +1,5 @@
 defmodule ArcaneVoice.TTS.Engine.Edge do
+  require Logger
   @moduledoc """
   TTS provider using Microsoft Edge's neural voices via edge-tts.
 

@@ -396,8 +396,11 @@ defmodule ArcaneVoice.TTS.Session do
 
     case Task.yield(task, 30_000) || Task.shutdown(task, :brutal_kill) do
       {:ok, result} -> result
+      {:exit, reason} ->
+        Logger.error("Session: TTS synthesis crashed: #{inspect(reason)}")
+        {:error, "TTS synthesis crashed"}
       nil ->
-        Logger.error("Session: TTS synthesis timed out after 10s")
+        Logger.error("Session: TTS synthesis timed out after 30s")
         {:error, "TTS synthesis timed out"}
     end
   end
