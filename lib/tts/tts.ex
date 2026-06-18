@@ -127,13 +127,15 @@ defmodule ArcaneVoice.TTS do
     guild_id = data["guild_id"]
     user_id = get_in(data, ["member", "user", "id"]) || data["user"]["id"]
     text = get_text_option(cmd_data)
+    interaction_token = data["token"]
 
     cond do
       is_nil(text) ->
         respond_interaction(data, %{
           "type" => 4,
-          "data" => %{"content" => "You need to provide text to speak.", "flags" => 64}
+          "data" => %{"content" => "Você precisa fornecer um texto para falar.", "flags" => 64}
         })
+        state
 
       true ->
         channel_id = get_in(state, [:voice_states, guild_id, user_id, "channel_id"])
@@ -141,18 +143,31 @@ defmodule ArcaneVoice.TTS do
         if is_nil(channel_id) do
           respond_interaction(data, %{
             "type" => 4,
-            "data" => %{"content" => "You need to be in a voice channel to use this command.", "flags" => 64}
+            "data" => %{"content" => "Você precisa estar em um canal de voz para usar este comando.", "flags" => 64}
           })
-        else
-          respond_interaction(data, %{
-            "type" => 4,
-            "data" => %{"content" => "Speaking...", "flags" => 64}
-          })
+          state
 
-          pid = start_session(guild_id, %{voice_channel_id: channel_id, text: text})
-          Process.monitor(pid)
-          send(pid, {:tts_config, self(), guild_id})
-          %{state | sessions: Map.put(state.sessions, guild_id, pid)}
+        else
+          if Map.has_key?(state.sessions, guild_id) do
+            respond_interaction(data, %{
+              "type" => 4,
+              "data" => %{"content" => "Já estou falando algo neste servidor. Seu texto será enfileirado.", "flags" => 64}
+            })
+
+            queue = Map.get(state.queues, guild_id, [])
+            %{state | queues: Map.put(state.queues, guild_id, queue ++ [%{voice_channel_id: channel_id, text: text, interaction_token: interaction_token}])}
+
+          else
+            respond_interaction(data, %{
+              "type" => 4,
+              "data" => %{"content" => "Pensando...", "flags" => 64}
+            })
+
+            pid = start_session(guild_id, %{voice_channel_id: channel_id, text: text, interaction_token: interaction_token})
+            Process.monitor(pid)
+            send(pid, {:tts_config, self(), guild_id})
+            %{state | sessions: Map.put(state.sessions, guild_id, pid)}
+          end
         end
     end
   end
@@ -202,7 +217,7 @@ defmodule ArcaneVoice.TTS do
       guild_id: guild_id,
       channel_id: info.voice_channel_id,
       text: info.text,
-      interaction_token: ""
+      interaction_token: Map.get(info, :interaction_token, "")
     )
     pid
   end
