@@ -284,7 +284,7 @@ defmodule ArcaneVoice.TTS.Session do
       end
     end)
 
-    case Task.yield(task, 10_000) || Task.shutdown(task, :brutal_kill) do
+    case Task.yield(task, 30_000) || Task.shutdown(task, :brutal_kill) do
       {:ok, result} -> result
       nil ->
         Logger.error("Session: TTS synthesis timed out after 10s")

@@ -18,8 +18,6 @@ defmodule ArcaneVoice.TTS.Audio do
     File.write!(mp3_path, audio_data)
     Logger.info("Audio: saved MP3 to #{mp3_path} (#{byte_size(audio_data)} bytes)")
 
-    pcm_path = Path.join(@debug_dir, "last.pcm")
-
     args = [
       "-i", mp3_path,
       "-f", "s16le",
@@ -28,16 +26,21 @@ defmodule ArcaneVoice.TTS.Audio do
       "-ac", "1",
       "-af", "volume=2.0",
       "-loglevel", "error",
-      pcm_path
+      "-"
     ]
 
     result =
       case System.cmd("ffmpeg", args, stderr_to_stdout: true) do
-        {_, 0} ->
-          pcm = File.read!(pcm_path)
+        {pcm, 0} ->
           pcm_size = byte_size(pcm)
-          first_bytes = if pcm_size >= 4, do: Base.encode16(binary_part(pcm, 0, 4)), else: "too small"
-          Logger.info("Audio: PCM saved to #{pcm_path} (#{pcm_size} bytes, first_bytes=#{first_bytes})")
+          non_zero = if pcm_size >= 1000 do
+            pcm |> binary_part(0, 1000) |> :binary.bin_to_list() |> Enum.count(&(&1 != 0))
+          else
+            0
+          end
+          Logger.info("Audio: PCM generated (#{pcm_size} bytes, first 1000 have #{non_zero} non-zero bytes)")
+          pcm_path = Path.join(@debug_dir, "last.pcm")
+          File.write!(pcm_path, pcm)
           ArcaneVoice.Debug.set(:mp3, mp3_path)
           ArcaneVoice.Debug.set(:pcm, pcm_path)
           {:ok, pcm}
