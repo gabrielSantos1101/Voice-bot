@@ -21,8 +21,7 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
       heartbeat_interval: nil,
       ssrc: nil,
       dave_active: false,
-      dave_seq: 0,
-      dave_out_seq: 0
+      dave_seq: 0
     }
 
     :websocket_client.start_link(url, __MODULE__, [state])
@@ -99,12 +98,11 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
   end
 
   def websocket_info({:send_dave_binary, opcode, payload}, _ws_req, state) do
-    seq = state.dave_out_seq + 1
-    frame = <<seq::16-big, opcode::8, payload::binary>>
+    frame = <<opcode::8, payload::binary>>
     Logger.debug(
-      "Voice WS: sending dave binary op=#{opcode} seq=#{seq} size=#{byte_size(frame)}b head=#{frame_head(frame)}"
+      "Voice WS: sending dave binary op=#{opcode} size=#{byte_size(frame)}b head=#{frame_head(frame)}"
     )
-    {:reply, {:binary, frame}, %{state | dave_out_seq: seq}}
+    {:reply, {:binary, frame}, state}
   end
 
   def websocket_info({:send_transition_ready, transition_id}, _ws_req, state) do
@@ -121,7 +119,8 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
     {:ok, state}
   end
 
-  def ondisconnect(_reason, state) do
+  def ondisconnect(reason, state) do
+    Logger.warning("Voice WS: disconnected reason=#{inspect(reason)}")
     if state.heartbeat_timer, do: Process.cancel_timer(state.heartbeat_timer)
     send(state.session_pid, {:voice_ws_disconnected})
     {:close, :normal, state}
