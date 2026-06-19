@@ -426,9 +426,15 @@ defmodule ArcaneVoice.TTS do
           "data" => %{"content" => "Suas mensagens de texto agora serão lidas em voz alta.", "flags" => 64}
         })
 
-        send(:discord_bot, {:voice_state_update, guild_id, channel_id, false, false})
+        info = %{
+          voice_channel_id: channel_id,
+          text: nil,
+          interaction_token: "",
+          voice: Application.get_env(:arcane_voice, :tts_voice, @default_voice),
+          idle_timeout_ms: 1_800_000
+        }
 
-        state
+        queue_or_start_session(state, guild_id, info)
       end
     end
   end

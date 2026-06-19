@@ -483,9 +483,13 @@ defmodule ArcaneVoice.TTS.Session do
   end
 
   defp encode_tts(state) do
-    provider = Application.get_env(:arcane_voice, :tts_provider, :edge)
-    fallback_voice = Application.get_env(:arcane_voice, :tts_voice, "pt-BR-FranciscaNeural")
-    selected_voice = state.voice || fallback_voice
+    if is_nil(state.text) or state.text == "" do
+      Logger.info("Session: empty text, skipping encoding")
+      {:ok, []}
+    else
+      provider = Application.get_env(:arcane_voice, :tts_provider, :edge)
+      fallback_voice = Application.get_env(:arcane_voice, :tts_voice, "pt-BR-FranciscaNeural")
+      selected_voice = state.voice || fallback_voice
 
     engine = ArcaneVoice.TTS.Engine.build(
       provider: provider,
@@ -519,6 +523,7 @@ defmodule ArcaneVoice.TTS.Session do
       nil ->
         Logger.error("Session: TTS synthesis timed out after 30s")
         {:error, "TTS synthesis timed out"}
+    end
     end
   end
 
