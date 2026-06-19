@@ -266,14 +266,19 @@ defmodule ArcaneVoice.TTS.Session do
     <<optype::8, proposals::binary>> = payload
     Logger.info("Session: DAVE proposals optype=#{optype} (#{byte_size(proposals)}b)")
 
-    case ArcaneVoice.TTS.Dave.process_proposals(state.guild_id, optype, proposals) do
-      {:ok, %{opcode: 28, payload: commit_welcome}} ->
-        Logger.info("Session: DAVE sending commit_welcome (#{byte_size(commit_welcome)}b)")
-        send(state.voice_ws_pid, {:send_dave_binary, 28, commit_welcome})
-      _ ->
-        :ok
+    if optype == 0 do
+      Logger.warning("Session: DAVE optype=0 not supported by davey library, skipping")
+      {:noreply, state}
+    else
+      case ArcaneVoice.TTS.Dave.process_proposals(state.guild_id, optype, proposals) do
+        {:ok, %{opcode: 28, payload: commit_welcome}} ->
+          Logger.info("Session: DAVE sending commit_welcome (#{byte_size(commit_welcome)}b)")
+          send(state.voice_ws_pid, {:send_dave_binary, 28, commit_welcome})
+        _ ->
+          :ok
+      end
+      {:noreply, state}
     end
-    {:noreply, state}
   end
 
   def handle_info({:dave_frame, 29, _seq, payload}, state) do

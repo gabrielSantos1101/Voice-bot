@@ -45,13 +45,7 @@ def cmd_process_proposals(data):
     optype = data["optype"]
     proposals = base64.b64decode(data["payload"])
     session = sessions[gid]
-    try:
-        result = session.process_proposals(ProposalsOperationType(optype), proposals)
-    except Exception:
-        import sys as _sys
-        _sys.stderr.write(f"Dave: process_proposals optype={optype} failed, skipping\n")
-        _sys.stderr.flush()
-        return {"type": "ok"}
+    result = session.process_proposals(ProposalsOperationType(optype), proposals)
     if result:
         payload = result.commit
         if result.welcome:
