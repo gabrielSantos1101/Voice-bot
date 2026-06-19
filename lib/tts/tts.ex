@@ -7,35 +7,37 @@ defmodule ArcaneVoice.TTS do
   @default_voice "pt-BR-FranciscaNeural"
   @max_text_length 300
 
-  @providers [
-    %{label: "Edge TTS", value: "edge", description: "Grátis, vozes naturais (Microsoft)"},
-    %{label: "ElevenLabs", value: "elevenlabs", description: "Pago, baixa latência, qualidade superior"},
-    %{label: "OpenAI", value: "openai", description: "Pago, boa qualidade"}
-  ]
-
-  @edge_voices [
-    %{label: "Brasil - Francisca", value: "pt-BR-FranciscaNeural", description: "Português do Brasil, voz feminina"},
-    %{label: "Brasil - Antonio", value: "pt-BR-AntonioNeural", description: "Português do Brasil, voz masculina"},
-    %{label: "Portugal - Raquel", value: "pt-PT-RaquelNeural", description: "Português de Portugal, voz feminina"},
-    %{label: "Portugal - Duarte", value: "pt-PT-DuarteNeural", description: "Português de Portugal, voz masculina"},
-    %{label: "English - Jenny", value: "en-US-JennyNeural", description: "English US, feminine voice"},
-    %{label: "English - Guy", value: "en-US-GuyNeural", description: "English US, masculine voice"}
-  ]
-
-  @elevenlabs_voices [
-    %{label: "Paulo", value: "Qrdut83w0Cr152Yb4Xn3", description: "ElevenLabs Paulo (masculino, PT-BR)"},
-    %{label: "José", value: "aU2vcrnwi348Gnc2Y1si", description: "ElevenLabs José (masculino, PT-BR)"},
-    %{label: "Ana Alice", value: "ORgG8rwdAiMYRug8RJwR", description: "ElevenLabs Ana Alice (feminino, PT-BR)"},
-    %{label: "Roberta", value: "RGymW84CSmfVugnA5tvA", description: "ElevenLabs Roberta (feminino, PT-BR)"}
-  ]
-
-  @openai_voices [
-    %{label: "Alloy", value: "alloy", description: "OpenAI Alloy (neutro, versátil)"},
-    %{label: "Echo", value: "echo", description: "OpenAI Echo (masculino, caloroso)"},
-    %{label: "Fable", value: "fable", description: "OpenAI Fable (britânico)"},
-    %{label: "Nova", value: "nova", description: "OpenAI Nova (feminino, caloroso)"},
-    %{label: "Shimmer", value: "shimmer", description: "OpenAI Shimmer (feminino, claro)"},
-    %{label: "Coral", value: "coral", description: "OpenAI Coral (feminino, energético)"}
+  @voices [
+    %{
+      label: "Brasil - Francisca",
+      value: "pt-BR-FranciscaNeural",
+      description: "Português do Brasil, voz feminina"
+    },
+    %{
+      label: "Brasil - Antonio",
+      value: "pt-BR-AntonioNeural",
+      description: "Português do Brasil, voz masculina"
+    },
+    %{
+      label: "Portugal - Raquel",
+      value: "pt-PT-RaquelNeural",
+      description: "Português de Portugal, voz feminina"
+    },
+    %{
+      label: "Portugal - Duarte",
+      value: "pt-PT-DuarteNeural",
+      description: "Português de Portugal, voz masculina"
+    },
+    %{
+      label: "English - Jenny",
+      value: "en-US-JennyNeural",
+      description: "English US, feminine voice"
+    },
+    %{
+      label: "English - Guy",
+      value: "en-US-GuyNeural",
+      description: "English US, masculine voice"
+    }
   ]
 
   @idle_options [
@@ -188,8 +190,7 @@ defmodule ArcaneVoice.TTS do
 
               settings = settings_for(state, guild_id)
               user_voice = get_in(state.user_voices, [guild_id, user_id])
-              provider = settings.provider || Application.get_env(:arcane_voice, :tts_provider, :edge)
-              settings = if user_voice and valid_voice_for_provider?(user_voice, provider), do: %{settings | voice: user_voice}, else: settings
+              settings = if user_voice, do: %{settings | voice: user_voice}, else: settings
 
               info = %{
                 voice_channel_id: channel_id,
@@ -301,8 +302,7 @@ defmodule ArcaneVoice.TTS do
     interaction_token = data["token"]
     settings = settings_for(state, guild_id)
     user_voice = get_in(state.user_voices, [guild_id, user_id])
-    provider = settings.provider || Application.get_env(:arcane_voice, :tts_provider, :edge)
-    settings = if user_voice and valid_voice_for_provider?(user_voice, provider), do: %{settings | voice: user_voice}, else: settings
+    settings = if user_voice, do: %{settings | voice: user_voice}, else: settings
 
     cond do
       is_nil(text) ->
@@ -508,30 +508,6 @@ defp handle_settings_slash(data, state) do
     end
   end
 
-  defp handle_component(data, "settings:provider", state) do
-    guild_id = data["guild_id"]
-    provider = data |> get_in(["data", "values"]) |> List.first()
-
-    settings = settings_for(state, guild_id) |> Map.put(:provider, String.to_existing_atom(provider))
-    state = put_settings(state, guild_id, settings)
-
-    # Reset voice to default when provider changes (voices differ per provider)
-    default_voice = Application.get_env(:arcane_voice, :tts_voice, @default_voice)
-    settings = settings |> Map.put(:voice, default_voice)
-    state = put_settings(state, guild_id, settings)
-
-    respond_interaction(data, %{
-      "type" => 7,
-      "data" => %{
-        "flags" => 64,
-        "content" => settings_content(settings),
-        "components" => settings_components(settings)
-      }
-    })
-
-    state
-  end
-
   defp handle_component(data, "settings:idle_timeout", state) do
     guild_id = data["guild_id"]
     value = data |> get_in(["data", "values"]) |> List.first()
@@ -578,8 +554,6 @@ defp handle_settings_slash(data, state) do
     guild_id = data["guild_id"]
     user_id = get_in(data, ["member", "user", "id"]) || data["user"]["id"]
     user_voice = get_in(state.user_voices, [guild_id, user_id])
-    settings = settings_for(state, guild_id)
-    provider = settings.provider || Application.get_env(:arcane_voice, :tts_provider, :edge)
 
     respond_interaction(data, %{
       "type" => 4,
@@ -598,7 +572,7 @@ defp handle_settings_slash(data, state) do
                 "max_values" => 1,
                 "options" =>
                   [%{"label" => "Padrão do servidor", "value" => "", "description" => "Usar a voz configurada no servidor", "default" => is_nil(user_voice)}] ++
-                  Enum.map(voices_for(Atom.to_string(provider)), fn voice ->
+                  Enum.map(@voices, fn voice ->
                     %{
                       "label" => voice.label,
                       "value" => voice.value,
@@ -711,20 +685,13 @@ defp handle_settings_slash(data, state) do
       text: info.text,
       interaction_token: Map.get(info, :interaction_token, ""),
       voice: Map.get(info, :voice, @default_voice),
-      idle_timeout_ms: Map.get(info, :idle_timeout_ms, @default_idle_timeout_ms),
-      provider: Map.get(info, :provider, Application.get_env(:arcane_voice, :tts_provider, :edge))
+      idle_timeout_ms: Map.get(info, :idle_timeout_ms, @default_idle_timeout_ms)
     )
     pid
   end
 
-  defp voices_for(nil), do: @edge_voices
-  defp voices_for("elevenlabs"), do: @elevenlabs_voices
-  defp voices_for("openai"), do: @openai_voices
-  defp voices_for(_), do: @edge_voices
-
   defp settings_for(state, guild_id) do
     Map.get(state.settings, guild_id, %{
-      provider: Application.get_env(:arcane_voice, :tts_provider, :edge),
       voice: Application.get_env(:arcane_voice, :tts_voice, @default_voice),
       idle_timeout_ms: @default_idle_timeout_ms,
       read_username: false
@@ -739,39 +706,14 @@ defp handle_settings_slash(data, state) do
     info
     |> Map.put(:voice, settings.voice)
     |> Map.put(:idle_timeout_ms, settings.idle_timeout_ms)
-    |> Map.put(:provider, settings.provider)
   end
 
   defp settings_content(settings) do
-    provider = settings.provider || Application.get_env(:arcane_voice, :tts_provider, :edge)
-    "Configurações atuais\nProvedor: #{provider}\nVoz: #{voice_label(settings.voice)}\nTempo em call: #{idle_label(settings.idle_timeout_ms)}\nLer nome: #{if settings.read_username, do: "Sim", else: "Não"}"
+    "Configurações atuais\nVoz do servidor: #{voice_label(settings.voice)}\nTempo em call: #{idle_label(settings.idle_timeout_ms)}\nLer nome: #{if settings.read_username, do: "Sim", else: "Não"}"
   end
 
   defp settings_components(settings) do
-    provider = settings.provider || Application.get_env(:arcane_voice, :tts_provider, :edge)
-
     [
-      %{
-        "type" => 1,
-        "components" => [
-          %{
-            "type" => 3,
-            "custom_id" => "settings:provider",
-            "placeholder" => "Provedor TTS",
-            "min_values" => 1,
-            "max_values" => 1,
-            "options" =>
-              Enum.map(@providers, fn p ->
-                %{
-                  "label" => p.label,
-                  "value" => p.value,
-                  "description" => p.description,
-                  "default" => p.value == Atom.to_string(provider)
-                }
-              end)
-          }
-        ]
-      },
       %{
         "type" => 1,
         "components" => [
@@ -782,7 +724,7 @@ defp handle_settings_slash(data, state) do
             "min_values" => 1,
             "max_values" => 1,
             "options" =>
-              Enum.map(voices_for(Atom.to_string(provider)), fn voice ->
+              Enum.map(@voices, fn voice ->
                 %{
                   "label" => voice.label,
                   "value" => voice.value,
@@ -833,15 +775,10 @@ defp handle_settings_slash(data, state) do
     ]
   end
 
-  defp valid_voice?(voice), do: Enum.any?(@edge_voices ++ @elevenlabs_voices ++ @openai_voices, &(&1.value == voice))
-
-  defp valid_voice_for_provider?(voice, provider) do
-    voices_for(Atom.to_string(provider)) |> Enum.any?(&(&1.value == voice))
-  end
+  defp valid_voice?(voice), do: Enum.any?(@voices, &(&1.value == voice))
 
   defp voice_label(voice) do
-    all_voices = @edge_voices ++ @elevenlabs_voices ++ @openai_voices
-    case Enum.find(all_voices, &(&1.value == voice)) do
+    case Enum.find(@voices, &(&1.value == voice)) do
       nil -> voice
       found -> found.label
     end

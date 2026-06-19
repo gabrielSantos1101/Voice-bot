@@ -38,7 +38,6 @@ defmodule ArcaneVoice.TTS.Session do
     encoding_task stream_after_encode
     prefetched_text prefetched_frames prefetch_task
     voice idle_timeout_ms idle_timer idle
-    provider
   ]a
 
   def start_link(opts) do
@@ -48,7 +47,6 @@ defmodule ArcaneVoice.TTS.Session do
     interaction_token = Keyword.fetch!(opts, :interaction_token)
     voice = Keyword.fetch!(opts, :voice)
     idle_timeout_ms = Keyword.fetch!(opts, :idle_timeout_ms)
-    provider = Keyword.get(opts, :provider, :edge)
 
     GenServer.start_link(__MODULE__, %__MODULE__{
       guild_id: guild_id,
@@ -57,7 +55,6 @@ defmodule ArcaneVoice.TTS.Session do
       interaction_token: interaction_token,
       voice: voice,
       idle_timeout_ms: idle_timeout_ms,
-      provider: provider,
       sequence: 0,
       timestamp: 0,
       dave_ready: false
@@ -490,18 +487,17 @@ defmodule ArcaneVoice.TTS.Session do
       Logger.info("Session: empty text, skipping encoding")
       {:ok, []}
     else
-      provider = state.provider || Application.get_env(:arcane_voice, :tts_provider, :edge)
-      selected_voice = state.voice
+      provider = Application.get_env(:arcane_voice, :tts_provider, :edge)
+      fallback_voice = Application.get_env(:arcane_voice, :tts_voice, "pt-BR-FranciscaNeural")
+      selected_voice = state.voice || fallback_voice
 
     engine = ArcaneVoice.TTS.Engine.build(
       provider: provider,
       voice: selected_voice
     )
 
-    default_voice = engine.voice
-
     task = Task.async(fn ->
-      case synthesize_with_fallback(engine, state.text, selected_voice, default_voice, provider) do
+      case synthesize_with_fallback(engine, state.text, selected_voice, fallback_voice, provider) do
         {:ok, pcm} ->
           pcm_size = byte_size(pcm)
           Logger.info("Session: PCM synthesized, size=#{pcm_size} bytes (#{div(pcm_size, 96000)}s approx)")
@@ -531,19 +527,20 @@ defmodule ArcaneVoice.TTS.Session do
     end
   end
 
-  defp synthesize_with_fallback(engine, text, selected_voice, default_voice, provider) do
+  defp synthesize_with_fallback(engine, text, selected_voice, fallback_voice, provider) do
     case ArcaneVoice.TTS.Engine.synthesize(engine, text) do
       {:ok, pcm} ->
         {:ok, pcm}
 
-      {:error, reason} when not is_nil(selected_voice) and selected_voice != default_voice ->
+      {:error, reason} when selected_voice != fallback_voice ->
         Logger.warning(
-          "Session: TTS voice #{selected_voice} failed, falling back to #{default_voice}: #{inspect(reason)}"
+          "Session: TTS voice #{selected_voice} failed, falling back to #{fallback_voice}: #{inspect(reason)}"
         )
 
         fallback_engine =
           ArcaneVoice.TTS.Engine.build(
-            provider: provider
+            provider: provider,
+            voice: fallback_voice
           )
 
         ArcaneVoice.TTS.Engine.synthesize(fallback_engine, text)
