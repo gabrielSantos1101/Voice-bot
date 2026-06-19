@@ -141,6 +141,9 @@ defmodule ArcaneVoice.TTS do
         %{"type" => 2, "data" => %{"name" => "join"}} ->
           handle_join_slash(data, state)
 
+        %{"type" => 2, "data" => %{"name" => "leave"}} ->
+          handle_leave_slash(data, state)
+
         %{"type" => 3, "data" => %{"custom_id" => custom_id}} ->
           handle_component(data, custom_id, state)
 
@@ -442,6 +445,35 @@ defmodule ArcaneVoice.TTS do
 
         state
       end
+    end
+  end
+
+  defp handle_leave_slash(data, state) do
+    guild_id = data["guild_id"]
+    user_id = get_in(data, ["member", "user", "id"]) || data["user"]["id"]
+    guild_joined = Map.get(state.joined_users, guild_id, %{})
+
+    if Map.has_key?(guild_joined, user_id) do
+      guild_joined = Map.delete(guild_joined, user_id)
+      state = %{state | joined_users: Map.put(state.joined_users, guild_id, guild_joined)}
+
+      if guild_joined == %{} do
+        state = %{state | last_speaker: Map.delete(state.last_speaker, guild_id)}
+      end
+
+      respond_interaction(data, %{
+        "type" => 4,
+        "data" => %{"content" => "Suas mensagens não serão mais lidas em voz alta.", "flags" => 64}
+      })
+
+      state
+    else
+      respond_interaction(data, %{
+        "type" => 4,
+        "data" => %{"content" => "Você não está inscrito para leitura de mensagens.", "flags" => 64}
+      })
+
+      state
     end
   end
 

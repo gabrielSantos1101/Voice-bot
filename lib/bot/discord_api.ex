@@ -37,6 +37,11 @@ defmodule ArcaneVoice.DiscordBot.DiscordApi do
         "name" => "join",
         "description" => "Have your text messages read aloud in the voice channel",
         "type" => 1
+      },
+      %{
+        "name" => "leave",
+        "description" => "Stop having your text messages read aloud",
+        "type" => 1
       }
     ]
 
