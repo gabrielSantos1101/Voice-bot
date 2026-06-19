@@ -1,4 +1,4 @@
-# fly.toml app configuration file generated for voice-bot-xwgx0a on 2026-06-19T14:11:22Z
+# fly.toml app configuration file generated for voice-bot-xwgx0a on 2026-06-19T14:42:31Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
@@ -11,7 +11,7 @@ primary_region = 'gru'
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = 'stop'
+  auto_stop_machines = true
   auto_start_machines = true
   min_machines_running = 0
   processes = ['app']
@@ -21,3 +21,11 @@ primary_region = 'gru'
   cpu_kind = 'shared'
   cpus = 1
   memory_mb = 512
+
+[[vm]]
+  memory = '256mb'
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 256
+  processes = ['app']
+  size = 'shared-cpu-1x'
