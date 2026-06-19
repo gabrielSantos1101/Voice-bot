@@ -11,7 +11,9 @@ defmodule ArcaneVoice.Gateway.Client do
 
   @intents %{
     guilds: 1 <<< 0,
-    guild_voice_states: 1 <<< 7
+    guild_voice_states: 1 <<< 7,
+    guild_messages: 1 <<< 9,
+    message_content: 1 <<< 15
   }
 
   @intents_mask Enum.reduce(@intents, 0, fn {_k, bit}, acc -> acc ||| bit end)
