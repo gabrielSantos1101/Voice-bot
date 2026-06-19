@@ -173,22 +173,7 @@ defmodule ArcaneVoice.TTS do
           if text in ["", nil] do
             {:noreply, state}
           else
-            channel_id = get_in(state.voice_states, [guild_id, user_id, "channel_id"])
-
-            {channel_id, state} = if is_nil(channel_id) do
-              case ArcaneVoice.DiscordBot.DiscordApi.get_user_voice_state(guild_id, user_id) do
-                {:ok, voice_state} ->
-                  if ch_id = voice_state["channel_id"] do
-                    vs = put_in(state.voice_states, [guild_id, user_id], voice_state)
-                    {ch_id, %{state | voice_states: vs}}
-                  else
-                    {nil, state}
-                  end
-                _ -> {nil, state}
-              end
-            else
-              {channel_id, state}
-            end
+            channel_id = get_in(state.voice_states, [guild_id, user_id, "channel_id"]) || joined_info.channel_id
 
             if is_nil(channel_id) do
               guild_joined = Map.delete(guild_joined, user_id)
