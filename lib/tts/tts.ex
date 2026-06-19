@@ -249,43 +249,59 @@ defmodule ArcaneVoice.TTS do
       true ->
         channel_id = get_in(state.voice_states, [guild_id, user_id, "channel_id"])
 
-          if is_nil(channel_id) do
-            respond_interaction(data, %{
-              "type" => 4,
-              "data" => %{"content" => "Você precisa estar em um canal de voz para usar este comando.", "flags" => 64}
-            })
-            state
-
-          else
-            text = if settings.read_username do
-              display_name = get_in(data, ["member", "nick"]) || get_in(data, ["member", "user", "global_name"]) || get_in(data, ["member", "user", "username"]) || "Alguém"
-              "#{display_name} disse: #{text}"
-            else
-              text
-            end
-            text = String.slice(text, 0, @max_text_length)
-            respond_interaction(data, %{
-              "type" => 4,
-              "data" => %{"content" => text}
-            })
-
-            info = apply_settings(%{voice_channel_id: channel_id, text: text, interaction_token: interaction_token}, settings)
-
-            if Map.has_key?(state.sessions, guild_id) do
-              if MapSet.member?(state.idle_sessions, guild_id) do
-                send(state.sessions[guild_id], {:play_next, info})
-                %{state | idle_sessions: MapSet.delete(state.idle_sessions, guild_id)}
+        {channel_id, state} = if is_nil(channel_id) do
+          case ArcaneVoice.DiscordBot.DiscordApi.get_user_voice_state(guild_id, user_id) do
+            {:ok, voice_state} ->
+              if ch_id = voice_state["channel_id"] do
+                vs = put_in(state.voice_states, [guild_id, user_id], voice_state)
+                {ch_id, %{state | voice_states: vs}}
               else
-                queue = Map.get(state.queues, guild_id, [])
-                %{state | queues: Map.put(state.queues, guild_id, queue ++ [info])}
+                {nil, state}
               end
-            else
-              pid = start_session(guild_id, info)
-              Process.monitor(pid)
-              send(pid, {:tts_config, self(), guild_id})
-              %{state | sessions: Map.put(state.sessions, guild_id, pid)}
-            end
+            _ ->
+              {nil, state}
           end
+        else
+          {channel_id, state}
+        end
+
+        if is_nil(channel_id) do
+          respond_interaction(data, %{
+            "type" => 4,
+            "data" => %{"content" => "Você precisa estar em um canal de voz para usar este comando.", "flags" => 64}
+          })
+          state
+
+        else
+          text = if settings.read_username do
+            display_name = get_in(data, ["member", "nick"]) || get_in(data, ["member", "user", "global_name"]) || get_in(data, ["member", "user", "username"]) || "Alguém"
+            "#{display_name} disse: #{text}"
+          else
+            text
+          end
+          text = String.slice(text, 0, @max_text_length)
+          respond_interaction(data, %{
+            "type" => 4,
+            "data" => %{"content" => text}
+          })
+
+          info = apply_settings(%{voice_channel_id: channel_id, text: text, interaction_token: interaction_token}, settings)
+
+          if Map.has_key?(state.sessions, guild_id) do
+            if MapSet.member?(state.idle_sessions, guild_id) do
+              send(state.sessions[guild_id], {:play_next, info})
+              %{state | idle_sessions: MapSet.delete(state.idle_sessions, guild_id)}
+            else
+              queue = Map.get(state.queues, guild_id, [])
+              %{state | queues: Map.put(state.queues, guild_id, queue ++ [info])}
+            end
+          else
+            pid = start_session(guild_id, info)
+            Process.monitor(pid)
+            send(pid, {:tts_config, self(), guild_id})
+            %{state | sessions: Map.put(state.sessions, guild_id, pid)}
+          end
+        end
     end
   end
 

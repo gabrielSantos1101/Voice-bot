@@ -113,6 +113,34 @@ defmodule ArcaneVoice.DiscordBot.DiscordApi do
     end
   end
 
+  def get_user_voice_state(guild_id, user_id) do
+    url = "#{@api_host}/guilds/#{guild_id}/voice-states/#{user_id}"
+
+    case :get
+         |> Finch.build(url, headers())
+         |> Finch.request(ArcaneVoice.Finch) do
+      {:ok, %{status: 200, body: body}} ->
+        case Jason.decode(body) do
+          {:ok, data} -> {:ok, data}
+          _ -> {:error, :parse_failed}
+        end
+
+      {:ok, %{status: 204}} ->
+        {:ok, nil}
+
+      {:ok, %{status: 404}} ->
+        {:ok, nil}
+
+      {:ok, %{status: status, body: body}} ->
+        Logger.warning("get_user_voice_state: status #{status}: #{body}")
+        {:error, status}
+
+      {:error, reason} ->
+        Logger.error("get_user_voice_state: request failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
   defp headers do
     [
       {"Authorization", "Bot " <> Application.get_env(:arcane_voice, :bot_token)},
