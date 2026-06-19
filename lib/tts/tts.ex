@@ -158,7 +158,6 @@ defmodule ArcaneVoice.TTS do
     else
       guild_id = data["guild_id"]
       user_id = data["author"]["id"]
-      channel_id = data["channel_id"]
       text = data["content"]
 
       guild_joined = Map.get(state.joined_users, guild_id, %{})
@@ -168,31 +167,53 @@ defmodule ArcaneVoice.TTS do
           {:noreply, state}
 
         joined_info ->
-          if joined_info.channel_id != channel_id or text in ["", nil] do
+          if text in ["", nil] do
             {:noreply, state}
           else
-            last = Map.get(state.last_speaker, guild_id)
-            {prefix, state} = if last == user_id do
-              {nil, state}
+            channel_id = get_in(state.voice_states, [guild_id, user_id, "channel_id"])
+
+            {channel_id, state} = if is_nil(channel_id) do
+              case ArcaneVoice.DiscordBot.DiscordApi.get_user_voice_state(guild_id, user_id) do
+                {:ok, voice_state} ->
+                  if ch_id = voice_state["channel_id"] do
+                    vs = put_in(state.voice_states, [guild_id, user_id], voice_state)
+                    {ch_id, %{state | voice_states: vs}}
+                  else
+                    {nil, state}
+                  end
+                _ -> {nil, state}
+              end
             else
-              {"#{joined_info.display_name} disse: ", %{state | last_speaker: Map.put(state.last_speaker, guild_id, user_id)}}
+              {channel_id, state}
             end
 
-            text = String.slice("#{prefix}#{text}", 0, @max_text_length)
+            if is_nil(channel_id) do
+              guild_joined = Map.delete(guild_joined, user_id)
+              {:noreply, %{state | joined_users: Map.put(state.joined_users, guild_id, guild_joined)}}
+            else
+              last = Map.get(state.last_speaker, guild_id)
+              {prefix, state} = if last == user_id do
+                {nil, state}
+              else
+                {"#{joined_info.display_name} disse: ", %{state | last_speaker: Map.put(state.last_speaker, guild_id, user_id)}}
+              end
 
-            settings = settings_for(state, guild_id)
-            user_voice = get_in(state.user_voices, [guild_id, user_id])
-            settings = if user_voice, do: %{settings | voice: user_voice}, else: settings
+              text = String.slice("#{prefix}#{text}", 0, @max_text_length)
 
-            info = %{
-              voice_channel_id: joined_info.channel_id,
-              text: text,
-              interaction_token: "",
-              voice: settings.voice,
-              idle_timeout_ms: 1_800_000
-            }
+              settings = settings_for(state, guild_id)
+              user_voice = get_in(state.user_voices, [guild_id, user_id])
+              settings = if user_voice, do: %{settings | voice: user_voice}, else: settings
 
-            {:noreply, queue_or_start_session(state, guild_id, info)}
+              info = %{
+                voice_channel_id: channel_id,
+                text: text,
+                interaction_token: "",
+                voice: settings.voice,
+                idle_timeout_ms: 1_800_000
+              }
+
+              {:noreply, queue_or_start_session(state, guild_id, info)}
+            end
           end
       end
     end
@@ -372,55 +393,57 @@ defmodule ArcaneVoice.TTS do
   defp get_text_option(_), do: nil
 
   defp handle_join_slash(data, state) do
-  guild_id = data["guild_id"]
-  user_id = get_in(data, ["member", "user", "id"]) || data["user"]["id"]
-  channel_id = get_in(state.voice_states, [guild_id, user_id, "channel_id"])
+    guild_id = data["guild_id"]
+    user_id = get_in(data, ["member", "user", "id"]) || data["user"]["id"]
+    channel_id = get_in(state.voice_states, [guild_id, user_id, "channel_id"])
 
-  {channel_id, state} = if is_nil(channel_id) do
-    case ArcaneVoice.DiscordBot.DiscordApi.get_user_voice_state(guild_id, user_id) do
-      {:ok, voice_state} ->
-        if ch_id = voice_state["channel_id"] do
-          vs = put_in(state.voice_states, [guild_id, user_id], voice_state)
-          {ch_id, %{state | voice_states: vs}}
-        else
-          {nil, state}
-        end
-      _ -> {nil, state}
+    {channel_id, state} = if is_nil(channel_id) do
+      case ArcaneVoice.DiscordBot.DiscordApi.get_user_voice_state(guild_id, user_id) do
+        {:ok, voice_state} ->
+          if ch_id = voice_state["channel_id"] do
+            vs = put_in(state.voice_states, [guild_id, user_id], voice_state)
+            {ch_id, %{state | voice_states: vs}}
+          else
+            {nil, state}
+          end
+        _ -> {nil, state}
+      end
+    else
+      {channel_id, state}
     end
-  else
-    {channel_id, state}
-  end
 
-  if is_nil(channel_id) do
-    respond_interaction(data, %{
-      "type" => 4,
-      "data" => %{"content" => "Você precisa estar em um canal de voz para usar este comando.", "flags" => 64}
-    })
-    state
-  else
-    guild_joined = Map.get(state.joined_users, guild_id, %{})
-
-    if Map.has_key?(guild_joined, user_id) do
+    if is_nil(channel_id) do
       respond_interaction(data, %{
         "type" => 4,
-        "data" => %{"content" => "Você já está inscrito para leitura de mensagens.", "flags" => 64}
+        "data" => %{"content" => "Você precisa estar em um canal de voz para usar este comando.", "flags" => 64}
       })
       state
     else
-      display_name = get_in(data, ["member", "nick"]) || get_in(data, ["member", "user", "global_name"]) || get_in(data, ["member", "user", "username"]) || "Alguém"
+      guild_joined = Map.get(state.joined_users, guild_id, %{})
 
-      guild_joined = Map.put(guild_joined, user_id, %{channel_id: channel_id, display_name: display_name})
-      state = %{state | joined_users: Map.put(state.joined_users, guild_id, guild_joined)}
+      if Map.has_key?(guild_joined, user_id) do
+        respond_interaction(data, %{
+          "type" => 4,
+          "data" => %{"content" => "Você já está inscrito para leitura de mensagens.", "flags" => 64}
+        })
+        state
+      else
+        display_name = get_in(data, ["member", "nick"]) || get_in(data, ["member", "user", "global_name"]) || get_in(data, ["member", "user", "username"]) || "Alguém"
 
-      respond_interaction(data, %{
-        "type" => 4,
-        "data" => %{"content" => "Suas mensagens de texto agora serão lidas em voz alta.", "flags" => 64}
-      })
+        guild_joined = Map.put(guild_joined, user_id, %{channel_id: channel_id, display_name: display_name})
+        state = %{state | joined_users: Map.put(state.joined_users, guild_id, guild_joined)}
 
-      state
+        respond_interaction(data, %{
+          "type" => 4,
+          "data" => %{"content" => "Suas mensagens de texto agora serão lidas em voz alta.", "flags" => 64}
+        })
+
+        send(:discord_bot, {:voice_state_update, guild_id, channel_id, false, false})
+
+        state
+      end
     end
   end
-end
 
 defp handle_settings_slash(data, state) do
     guild_id = data["guild_id"]
