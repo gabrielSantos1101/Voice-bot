@@ -204,7 +204,9 @@ defmodule ArcaneVoice.TTS do
       state = %{
         state |
         sessions: Map.delete(state.sessions, guild_id),
-        idle_sessions: MapSet.delete(state.idle_sessions, guild_id)
+        idle_sessions: MapSet.delete(state.idle_sessions, guild_id),
+        joined_users: Map.delete(state.joined_users, guild_id),
+        last_speaker: Map.delete(state.last_speaker, guild_id)
       }
       {:noreply, dequeue_next(state, guild_id)}
     else
@@ -217,7 +219,9 @@ defmodule ArcaneVoice.TTS do
     state = %{
       state |
       sessions: Map.delete(state.sessions, guild_id),
-      idle_sessions: MapSet.delete(state.idle_sessions, guild_id)
+      idle_sessions: MapSet.delete(state.idle_sessions, guild_id),
+      joined_users: Map.delete(state.joined_users, guild_id),
+      last_speaker: Map.delete(state.last_speaker, guild_id)
     }
     {:noreply, dequeue_next(state, guild_id)}
   end
