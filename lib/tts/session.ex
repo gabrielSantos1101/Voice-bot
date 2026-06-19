@@ -559,19 +559,26 @@ defmodule ArcaneVoice.TTS.Session do
   end
 
   defp maybe_start_encoding(state, stream_after) do
-    caller = self()
     text = state.text
 
-    Logger.info(
-      "Session: encoding TTS #{if stream_after, do: "for stream", else: "for debug/cache"}: #{String.slice(text, 0, 50)}"
-    )
+    if is_nil(text) or text == "" do
+      Logger.info("Session: empty text, skipping encoding")
+      send(self(), {:tts_encoded, {:ok, []}})
+      %{state | stream_after_encode: stream_after}
+    else
+      caller = self()
 
-    {:ok, task} =
-      Task.start(fn ->
-        send(caller, {:tts_encoded, encode_tts(%{state | text: text})})
-      end)
+      Logger.info(
+        "Session: encoding TTS #{if stream_after, do: "for stream", else: "for debug/cache"}: #{String.slice(text, 0, 50)}"
+      )
 
-    %{state | encoding_task: task, stream_after_encode: stream_after}
+      {:ok, task} =
+        Task.start(fn ->
+          send(caller, {:tts_encoded, encode_tts(%{state | text: text})})
+        end)
+
+      %{state | encoding_task: task, stream_after_encode: stream_after}
+    end
   end
 
   defp log_encoded_frames(frames) do
