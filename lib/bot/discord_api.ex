@@ -32,6 +32,11 @@ defmodule ArcaneVoice.DiscordBot.DiscordApi do
         "name" => "voice",
         "description" => "Set your personal TTS voice preference",
         "type" => 1
+      },
+      %{
+        "name" => "join",
+        "description" => "Have your text messages read aloud in the voice channel",
+        "type" => 1
       }
     ]
 

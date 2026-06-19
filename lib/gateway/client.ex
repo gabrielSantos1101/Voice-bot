@@ -257,6 +257,8 @@ defmodule ArcaneVoice.Gateway.Client do
       end)
     end
 
+    ArcaneVoice.TTS.handle_message(payload.data)
+
     {:ok, state}
   end
 
