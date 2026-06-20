@@ -45,7 +45,8 @@ def cmd_process_proposals(data):
     optype = data["optype"]
     proposals = base64.b64decode(data["payload"])
     session = sessions[gid]
-    result = session.process_proposals(ProposalsOperationType(optype), proposals)
+    operation = ProposalsOperationType.append if optype == 0 else ProposalsOperationType.revoke
+    result = session.process_proposals(operation, proposals)
     if result:
         payload = result.commit
         if result.welcome:
