@@ -163,6 +163,8 @@ defmodule ArcaneVoice.TTS do
       user_id = data["author"]["id"]
       text = data["content"]
 
+      text = String.replace(text, ~r/<a?:\w+:\d+>/, "") |> String.replace(~r/:[\w]+:/, "") |> String.trim()
+
       guild_joined = Map.get(state.joined_users, guild_id, %{})
 
       case Map.get(guild_joined, user_id) do
@@ -298,7 +300,7 @@ defmodule ArcaneVoice.TTS do
     guild_id = data["guild_id"]
     user_id = get_in(data, ["member", "user", "id"]) || data["user"]["id"]
     text = get_text_option(cmd_data)
-    text = if text, do: String.slice(text, 0, @max_text_length), else: nil
+    text = if text, do: text |> String.replace(~r/<a?:\w+:\d+>/, "") |> String.replace(~r/:[\w]+:/, "") |> String.trim() |> String.slice(0, @max_text_length), else: nil
     interaction_token = data["token"]
     settings = settings_for(state, guild_id)
     user_voice = get_in(state.user_voices, [guild_id, user_id])
