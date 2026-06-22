@@ -47,7 +47,7 @@ defmodule ArcaneVoice.TTS do
     {"30 minutos", 1_800_000}
   ]
 
-  defstruct sessions: %{}, queues: %{}, voice_states: %{}, settings: %{}, idle_sessions: MapSet.new(), user_voices: %{}, joined_users: %{}, last_speaker: %{}
+  defstruct sessions: %{}, queues: %{}, voice_states: %{}, settings: %{}, idle_sessions: MapSet.new(), user_voices: %{}, joined_users: %{}, last_speaker: %{}, processed_interactions: %{}, processed_messages: %{}
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %__MODULE__{}, name: __MODULE__)
@@ -127,84 +127,104 @@ defmodule ArcaneVoice.TTS do
 
   @impl true
   def handle_cast({:handle_interaction, data}, state) do
-    new_state =
-      case data do
-        %{"type" => 2, "data" => %{"name" => "tts"} = cmd_data} ->
-          handle_tts_slash(data, cmd_data, state)
+    interaction_id = data["id"]
 
-        %{"type" => 2, "data" => %{"name" => "settings"}} ->
-          handle_settings_slash(data, state)
+    state =
+      if Map.has_key?(state.processed_interactions, interaction_id) do
+        Logger.debug("TTS: ignoring duplicate interaction #{interaction_id}")
+        state
+      else
+        processed = cleanup_cache(state.processed_interactions)
+        state = %{state | processed_interactions: Map.put(processed, interaction_id, :os.system_time(:second))}
 
-        %{"type" => 2, "data" => %{"name" => "voice"}} ->
-          handle_voice_slash(data, state)
+        case data do
+          %{"type" => 2, "data" => %{"name" => "tts"} = cmd_data} ->
+            handle_tts_slash(data, cmd_data, state)
 
-        %{"type" => 2, "data" => %{"name" => "join"}} ->
-          handle_join_slash(data, state)
+          %{"type" => 2, "data" => %{"name" => "settings"}} ->
+            handle_settings_slash(data, state)
 
-        %{"type" => 2, "data" => %{"name" => "leave"}} ->
-          handle_leave_slash(data, state)
+          %{"type" => 2, "data" => %{"name" => "voice"}} ->
+            handle_voice_slash(data, state)
 
-        %{"type" => 3, "data" => %{"custom_id" => custom_id}} ->
-          handle_component(data, custom_id, state)
+          %{"type" => 2, "data" => %{"name" => "join"}} ->
+            handle_join_slash(data, state)
 
-        _ ->
-          Logger.debug("TTS: unknown interaction type=#{data["type"]}")
-          state
+          %{"type" => 2, "data" => %{"name" => "leave"}} ->
+            handle_leave_slash(data, state)
+
+          %{"type" => 3, "data" => %{"custom_id" => custom_id}} ->
+            handle_component(data, custom_id, state)
+
+          _ ->
+            Logger.debug("TTS: unknown interaction type=#{data["type"]}")
+            state
+        end
       end
 
-    {:noreply, new_state}
+    {:noreply, state}
   end
 
   def handle_cast({:handle_message, data}, state) do
     if get_in(data, ["author", "bot"]) == true do
       {:noreply, state}
     else
-      guild_id = data["guild_id"]
-      user_id = data["author"]["id"]
-      text = data["content"]
+      message_id = data["id"]
 
-      text = String.replace(text, ~r/<a?:\w+:\d+>/, "") |> String.replace(~r/:[\w]+:/, "") |> String.trim()
+      if Map.has_key?(state.processed_messages, message_id) do
+        Logger.debug("TTS: ignoring duplicate message #{message_id}")
+        {:noreply, state}
+      else
+        processed = cleanup_cache(state.processed_messages)
+        state = %{state | processed_messages: Map.put(processed, message_id, :os.system_time(:second))}
 
-      guild_joined = Map.get(state.joined_users, guild_id, %{})
+        guild_id = data["guild_id"]
+        user_id = data["author"]["id"]
+        text = data["content"]
 
-      case Map.get(guild_joined, user_id) do
-        nil ->
-          {:noreply, state}
+        text = String.replace(text, ~r/<a?:\w+:\d+>/, "") |> String.replace(~r/:[\w]+:/, "") |> String.trim()
 
-        joined_info ->
-          if text in ["", nil] do
+        guild_joined = Map.get(state.joined_users, guild_id, %{})
+
+        case Map.get(guild_joined, user_id) do
+          nil ->
             {:noreply, state}
-          else
-            channel_id = get_in(state.voice_states, [guild_id, user_id, "channel_id"]) || joined_info.channel_id
 
-            if is_nil(channel_id) do
-              guild_joined = Map.delete(guild_joined, user_id)
-              {:noreply, %{state | joined_users: Map.put(state.joined_users, guild_id, guild_joined)}}
+          joined_info ->
+            if text in ["", nil] do
+              {:noreply, state}
             else
-              last = Map.get(state.last_speaker, guild_id)
-              {prefix, state} = if last == user_id do
-                {nil, state}
+              channel_id = get_in(state.voice_states, [guild_id, user_id, "channel_id"]) || joined_info.channel_id
+
+              if is_nil(channel_id) do
+                guild_joined = Map.delete(guild_joined, user_id)
+                {:noreply, %{state | joined_users: Map.put(state.joined_users, guild_id, guild_joined)}}
               else
-                {"#{joined_info.display_name} disse: ", %{state | last_speaker: Map.put(state.last_speaker, guild_id, user_id)}}
+                last = Map.get(state.last_speaker, guild_id)
+                {prefix, state} = if last == user_id do
+                  {nil, state}
+                else
+                  {"#{joined_info.display_name} disse: ", %{state | last_speaker: Map.put(state.last_speaker, guild_id, user_id)}}
+                end
+
+                text = String.slice("#{prefix}#{text}", 0, @max_text_length)
+
+                settings = settings_for(state, guild_id)
+                user_voice = get_in(state.user_voices, [guild_id, user_id])
+                settings = if user_voice, do: %{settings | voice: user_voice}, else: settings
+
+                info = %{
+                  voice_channel_id: channel_id,
+                  text: text,
+                  interaction_token: "",
+                  voice: settings.voice,
+                  idle_timeout_ms: 1_800_000
+                }
+
+                {:noreply, queue_or_start_session(state, guild_id, info)}
               end
-
-              text = String.slice("#{prefix}#{text}", 0, @max_text_length)
-
-              settings = settings_for(state, guild_id)
-              user_voice = get_in(state.user_voices, [guild_id, user_id])
-              settings = if user_voice, do: %{settings | voice: user_voice}, else: settings
-
-              info = %{
-                voice_channel_id: channel_id,
-                text: text,
-                interaction_token: "",
-                voice: settings.voice,
-                idle_timeout_ms: 1_800_000
-              }
-
-              {:noreply, queue_or_start_session(state, guild_id, info)}
             end
-          end
+        end
       end
     end
   end
@@ -227,6 +247,7 @@ defmodule ArcaneVoice.TTS do
   end
 
   def handle_info({:session_ended, guild_id}, state) do
+    Logger.warning("TTS: session_ended without pid for guild #{guild_id}, cleaning up")
     state = %{
       state |
       sessions: Map.delete(state.sessions, guild_id),
@@ -640,27 +661,40 @@ defp handle_settings_slash(data, state) do
     interaction_id = data["id"]
     token = data["token"]
     url = "https://discord.com/api/v10/interactions/#{interaction_id}/#{token}/callback"
+    encoded = Jason.encode!(body)
 
     Task.start(fn ->
-      try do
-        encoded = Jason.encode!(body)
-
-        case :post
-             |> Finch.build(url, [{"Content-Type", "application/json"}], encoded)
-             |> Finch.request(ArcaneVoice.Finch) do
-          {:ok, %{status: status}} when status in 200..299 ->
-            Logger.debug("TTS: interaction responded (status #{status})")
-
-          {:ok, %{status: status, body: resp_body}} ->
-            Logger.error("TTS: interaction rejected (status #{status}): #{resp_body}")
-
-          {:error, reason} ->
-            Logger.error("TTS: interaction request failed: #{inspect(reason)}")
-        end
-      rescue
-        e -> Logger.error("TTS: respond_interaction crashed: #{inspect(e)}")
-      end
+      respond_interaction_retry(url, encoded, 3)
     end)
+  end
+
+  defp respond_interaction_retry(_url, _encoded, 0) do
+    Logger.error("TTS: interaction response exhausted retries")
+  end
+
+  defp respond_interaction_retry(url, encoded, retries) do
+    try do
+      case :post
+           |> Finch.build(url, [{"Content-Type", "application/json"}], encoded)
+           |> Finch.request(ArcaneVoice.Finch) do
+        {:ok, %{status: status}} when status in 200..299 ->
+          Logger.debug("TTS: interaction responded (status #{status})")
+
+        {:ok, %{status: status, body: resp_body}} when status in [429] ->
+          Logger.warning("TTS: rate limited (#{status}), retrying (#{retries - 1} left)")
+          Process.sleep(1000)
+          respond_interaction_retry(url, encoded, retries - 1)
+
+        {:ok, %{status: status, body: resp_body}} ->
+          Logger.error("TTS: interaction rejected (status #{status}): #{resp_body}")
+
+        {:error, reason} ->
+          Logger.error("TTS: interaction request failed: #{inspect(reason)}")
+      end
+    rescue
+      e ->
+        Logger.error("TTS: respond_interaction crashed: #{inspect(e)}")
+    end
   end
 
   defp dequeue_next(state, guild_id) do
@@ -775,6 +809,11 @@ defp handle_settings_slash(data, state) do
         ]
       }
     ]
+  end
+
+  defp cleanup_cache(cache) do
+    now = :os.system_time(:second)
+    cache |> Enum.filter(fn {_id, ts} -> now - ts < 60 end) |> Map.new()
   end
 
   defp valid_voice?(voice), do: Enum.any?(@voices, &(&1.value == voice))

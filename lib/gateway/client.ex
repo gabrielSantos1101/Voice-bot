@@ -119,7 +119,8 @@ defmodule ArcaneVoice.Gateway.Client do
         self()
       )
 
-    if state[:session_id] && state[:resume_gateway_url] && state[:seq_num] do
+    seq_num = agent_value(state[:agent_seq_num])
+    if state[:session_id] && state[:resume_gateway_url] && seq_num do
       Logger.info("Discord: Resuming session #{state[:session_id]}")
       resume(state)
     else
@@ -297,7 +298,7 @@ defmodule ArcaneVoice.Gateway.Client do
     data = %{
       "token" => state.token,
       "session_id" => state[:session_id],
-      "seq" => state[:seq_num]
+      "seq" => agent_value(state[:agent_seq_num])
     }
 
     payload = payload_build_json(opcode(opcodes(), :resume), data)
