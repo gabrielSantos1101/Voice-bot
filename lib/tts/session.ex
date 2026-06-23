@@ -37,7 +37,7 @@ defmodule ArcaneVoice.TTS.Session do
     first_sent
     encoding_task stream_after_encode
     prefetched_text prefetched_frames prefetch_task
-    voice idle_timeout_ms idle_timer idle
+    voice idle_timeout_ms idle_timer idle provider
   ]a
 
   def start_link(opts) do
@@ -47,6 +47,7 @@ defmodule ArcaneVoice.TTS.Session do
     interaction_token = Keyword.fetch!(opts, :interaction_token)
     voice = Keyword.fetch!(opts, :voice)
     idle_timeout_ms = Keyword.fetch!(opts, :idle_timeout_ms)
+    provider = Keyword.get(opts, :provider, :edge)
 
     GenServer.start_link(__MODULE__, %__MODULE__{
       guild_id: guild_id,
@@ -55,6 +56,7 @@ defmodule ArcaneVoice.TTS.Session do
       interaction_token: interaction_token,
       voice: voice,
       idle_timeout_ms: idle_timeout_ms,
+      provider: provider,
       sequence: 0,
       timestamp: 0,
       dave_ready: false
@@ -487,7 +489,7 @@ defmodule ArcaneVoice.TTS.Session do
       Logger.info("Session: empty text, skipping encoding")
       {:ok, []}
     else
-      provider = Application.get_env(:arcane_voice, :tts_provider, :edge)
+      provider = state.provider || Application.get_env(:arcane_voice, :tts_provider, :edge)
       fallback_voice = Application.get_env(:arcane_voice, :tts_voice, "pt-BR-FranciscaNeural")
       selected_voice = state.voice || fallback_voice
 

@@ -40,6 +40,12 @@ defmodule ArcaneVoice.TTS do
     }
   ]
 
+  @providers [
+    %{label: "Microsoft Edge (gratuito)", value: "edge", description: "Vozes neurais da Microsoft, sem custo"},
+    %{label: "OpenAI (pago)", value: "openai", description: "Vozes da OpenAI, requer API key"},
+    %{label: "ElevenLabs (pago)", value: "elevenlabs", description: "Vozes realistas da ElevenLabs, requer API key"}
+  ]
+
   @idle_options [
     {"1 minuto", 60_000},
     {"5 minutos", 300_000},
@@ -213,13 +219,11 @@ defmodule ArcaneVoice.TTS do
                 user_voice = get_in(state.user_voices, [guild_id, user_id])
                 settings = if user_voice, do: %{settings | voice: user_voice}, else: settings
 
-                info = %{
+                info = apply_settings(%{
                   voice_channel_id: channel_id,
                   text: text,
-                  interaction_token: "",
-                  voice: settings.voice,
-                  idle_timeout_ms: 1_800_000
-                }
+                  interaction_token: ""
+                }, settings)
 
                 {:noreply, queue_or_start_session(state, guild_id, info)}
               end
@@ -449,13 +453,12 @@ defmodule ArcaneVoice.TTS do
           "data" => %{"content" => "Suas mensagens de texto agora serão lidas em voz alta.", "flags" => 64}
         })
 
-        info = %{
+        settings = settings_for(state, guild_id)
+        info = apply_settings(%{
           voice_channel_id: channel_id,
           text: nil,
-          interaction_token: "",
-          voice: Application.get_env(:arcane_voice, :tts_voice, @default_voice),
-          idle_timeout_ms: 1_800_000
-        }
+          interaction_token: ""
+        }, settings)
 
         queue_or_start_session(state, guild_id, info)
       end
@@ -505,6 +508,30 @@ defp handle_settings_slash(data, state) do
     })
 
     state
+  end
+
+  defp handle_component(data, "settings:provider", state) do
+    guild_id = data["guild_id"]
+    value = data |> get_in(["data", "values"]) |> List.first()
+
+    if Enum.any?(@providers, &(&1.value == value)) do
+      settings = settings_for(state, guild_id) |> Map.put(:provider, value)
+      state = put_settings(state, guild_id, settings)
+
+      respond_interaction(data, %{
+        "type" => 4,
+        "data" => %{"flags" => 64, "content" => "Provedor TTS alterado para #{provider_label(value)}."}
+      })
+
+      state
+    else
+      respond_interaction(data, %{
+        "type" => 4,
+        "data" => %{"flags" => 64, "content" => "Provedor inválido."}
+      })
+
+      state
+    end
   end
 
   defp handle_component(data, "settings:voice", state) do
@@ -721,7 +748,8 @@ defp handle_settings_slash(data, state) do
       text: info.text,
       interaction_token: Map.get(info, :interaction_token, ""),
       voice: Map.get(info, :voice, @default_voice),
-      idle_timeout_ms: Map.get(info, :idle_timeout_ms, @default_idle_timeout_ms)
+      idle_timeout_ms: Map.get(info, :idle_timeout_ms, @default_idle_timeout_ms),
+      provider: Map.get(info, :provider, :edge)
     )
     pid
   end
@@ -730,7 +758,8 @@ defp handle_settings_slash(data, state) do
     Map.get(state.settings, guild_id, %{
       voice: Application.get_env(:arcane_voice, :tts_voice, @default_voice),
       idle_timeout_ms: @default_idle_timeout_ms,
-      read_username: false
+      read_username: false,
+      provider: to_string(Application.get_env(:arcane_voice, :tts_provider, :edge))
     })
   end
 
@@ -742,10 +771,11 @@ defp handle_settings_slash(data, state) do
     info
     |> Map.put(:voice, settings.voice)
     |> Map.put(:idle_timeout_ms, settings.idle_timeout_ms)
+    |> Map.put(:provider, String.to_atom(settings.provider))
   end
 
   defp settings_content(settings) do
-    "Configurações atuais\nVoz do servidor: #{voice_label(settings.voice)}\nTempo em call: #{idle_label(settings.idle_timeout_ms)}\nLer nome: #{if settings.read_username, do: "Sim", else: "Não"}"
+    "Configurações atuais\nVoz do servidor: #{voice_label(settings.voice)}\nProvedor: #{provider_label(settings.provider)}\nTempo em call: #{idle_label(settings.idle_timeout_ms)}\nLer nome: #{if settings.read_username, do: "Sim", else: "Não"}"
   end
 
   defp settings_components(settings) do
@@ -766,6 +796,27 @@ defp handle_settings_slash(data, state) do
                   "value" => voice.value,
                   "description" => voice.description,
                   "default" => voice.value == settings.voice
+                }
+              end)
+          }
+        ]
+      },
+      %{
+        "type" => 1,
+        "components" => [
+          %{
+            "type" => 3,
+            "custom_id" => "settings:provider",
+            "placeholder" => "Provedor TTS",
+            "min_values" => 1,
+            "max_values" => 1,
+            "options" =>
+              Enum.map(@providers, fn p ->
+                %{
+                  "label" => p.label,
+                  "value" => p.value,
+                  "description" => p.description,
+                  "default" => p.value == settings.provider
                 }
               end)
           }
@@ -821,6 +872,13 @@ defp handle_settings_slash(data, state) do
   defp voice_label(voice) do
     case Enum.find(@voices, &(&1.value == voice)) do
       nil -> voice
+      found -> found.label
+    end
+  end
+
+  defp provider_label(provider) do
+    case Enum.find(@providers, &(&1.value == provider)) do
+      nil -> provider
       found -> found.label
     end
   end
