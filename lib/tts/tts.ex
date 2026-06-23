@@ -515,13 +515,12 @@ defp handle_settings_slash(data, state) do
     value = data |> get_in(["data", "values"]) |> List.first()
 
     if Enum.any?(@providers, &(&1.value == value)) do
-      settings = settings_for(state, guild_id) |> Map.put(:provider, value)
+      current = settings_for(state, guild_id)
 
-      settings = if value != settings.provider do
-        default_voice = provider_default_voice(value)
-        Map.put(settings, :voice, default_voice)
+      settings = if value != current.provider do
+        Map.put(current, :provider, value) |> Map.put(:voice, provider_default_voice(value))
       else
-        settings
+        current
       end
 
       state = put_settings(state, guild_id, settings)
