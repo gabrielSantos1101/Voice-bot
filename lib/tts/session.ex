@@ -227,18 +227,107 @@ defmodule ArcaneVoice.TTS.Session do
 
   def handle_info({:session_description, mode, secret_key, dave_ver}, state) do
     Logger.info("Session: got session description, mode=#{mode}, key_size=#{byte_size(secret_key)}, dave_ver=#{dave_ver}")
-    state = %{state | encryption_mode: mode, secret_key: secret_key, dave_active: false}
+    state = %{state | encryption_mode: mode, secret_key: secret_key, dave_active: dave_ver > 0}
 
-    Logger.info("Session: DAVE disabled, using AES-GCM encryption, starting TTS encoding")
-    send(self(), :encode_and_stream)
+    if dave_ver > 0 do
+      state = ensure_dave_initialized(state)
+      case ArcaneVoice.TTS.Dave.get_serialized_key_package(state.guild_id) do
+        {:ok, %{opcode: 26, payload: key_package}} ->
+          Logger.info("Session: DAVE sending key_package (#{byte_size(key_package)}b)")
+          send(state.voice_ws_pid, {:send_dave_binary, 26, key_package})
+        other ->
+          Logger.warning("Session: Dave get_key_package: #{inspect(other)}")
+      end
+    end
+
+    if state.dave_ready || !state.dave_active do
+      Logger.info("Session: #{if state.dave_ready, do: "DAVE ready, ", else: "no DAVE, "}starting TTS encoding")
+      send(self(), :encode_and_stream)
+    else
+      Logger.info("Session: waiting for DAVE handshake before starting stream; encoding TTS for debug/cache")
+      send(self(), :encode_only)
+    end
 
     {:noreply, state}
   end
 
   # ── DAVE Handlers ──
 
-  def handle_info({:dave_frame, _opcode, _seq, _payload}, state) do
+  def handle_info({:dave_frame, 25, _seq, payload}, state) do
+    Logger.info("Session: DAVE external_sender_package (#{byte_size(payload)}b)")
+    _ = ArcaneVoice.TTS.Dave.set_external_sender(state.guild_id, payload)
     {:noreply, state}
+  end
+
+  def handle_info({:dave_frame, 27, _seq, payload}, state) do
+    <<optype::8, proposals::binary>> = payload
+    Logger.info("Session: DAVE proposals optype=#{optype} (#{byte_size(proposals)}b)")
+    case ArcaneVoice.TTS.Dave.process_proposals(state.guild_id, optype, proposals) do
+      {:ok, %{opcode: 28, payload: commit_welcome}} ->
+        Logger.info("Session: DAVE sending commit_welcome (#{byte_size(commit_welcome)}b)")
+        send(state.voice_ws_pid, {:send_dave_binary, 28, commit_welcome})
+      _ ->
+        :ok
+    end
+    {:noreply, state}
+  end
+
+  def handle_info({:dave_frame, 29, _seq, payload}, state) do
+    <<transition_id::16, commit::binary>> = payload
+    Logger.info("Session: DAVE announce_commit id=#{transition_id} (#{byte_size(commit)}b)")
+    _ = ArcaneVoice.TTS.Dave.process_commit(state.guild_id, commit)
+    if state.voice_ws_pid do
+      Logger.info("Session: DAVE sending transition ready (op 23)")
+      send(state.voice_ws_pid, {:send_transition_ready, transition_id})
+    end
+    {:noreply, state}
+  end
+
+  def handle_info({:dave_frame, 30, _seq, payload}, state) do
+    <<transition_id::16, welcome::binary>> = payload
+    Logger.info("Session: DAVE welcome id=#{transition_id} (#{byte_size(welcome)}b)")
+    _ = ArcaneVoice.TTS.Dave.process_welcome(state.guild_id, welcome)
+    if state.voice_ws_pid do
+      Logger.info("Session: DAVE sending transition ready (op 23)")
+      send(state.voice_ws_pid, {:send_transition_ready, transition_id})
+    end
+    {:noreply, state}
+  end
+
+  def handle_info({:dave_frame, opcode, seq, _payload}, state) do
+    Logger.debug("Session: DAVE unhandled frame op=#{opcode} seq=#{seq}")
+    {:noreply, state}
+  end
+
+  def handle_info({:dave_execute_transition, transition_id}, state) do
+    Logger.info("Session: DAVE execute_transition id=#{transition_id}")
+    state = %{state | dave_ready: true}
+
+    if state.secret_key do
+      Logger.info("Session: DAVE ready, starting stream")
+      send(self(), :stream_when_ready)
+    else
+      Logger.info("Session: DAVE ready, waiting for session description")
+    end
+
+    {:noreply, state}
+  end
+
+  defp ensure_dave_initialized(state) do
+    if state.dave_initialized do
+      state
+    else
+      user_id = String.to_integer(state.bot_user_id)
+      channel_id = String.to_integer(state.channel_id)
+
+      case ArcaneVoice.TTS.Dave.init_session(state.guild_id, user_id, channel_id) do
+        :ok -> :ok
+        {:ok, _} -> :ok
+        other -> Logger.warning("Session: Dave init: #{inspect(other)}")
+      end
+
+      %{state | dave_initialized: true}
+    end
   end
 
   # ── Streaming ──
