@@ -516,11 +516,19 @@ defp handle_settings_slash(data, state) do
 
     if Enum.any?(@providers, &(&1.value == value)) do
       settings = settings_for(state, guild_id) |> Map.put(:provider, value)
+
+      settings = if value != settings.provider do
+        default_voice = provider_default_voice(value)
+        Map.put(settings, :voice, default_voice)
+      else
+        settings
+      end
+
       state = put_settings(state, guild_id, settings)
 
       respond_interaction(data, %{
         "type" => 4,
-        "data" => %{"flags" => 64, "content" => "Provedor TTS alterado para #{provider_label(value)}."}
+        "data" => %{"flags" => 64, "content" => "Provedor alterado para #{provider_label(value)}. Voz ajustada para #{voice_label(settings.voice)}."}
       })
 
       state
@@ -882,6 +890,11 @@ defp handle_settings_slash(data, state) do
       found -> found.label
     end
   end
+
+  defp provider_default_voice("edge"), do: "pt-BR-FranciscaNeural"
+  defp provider_default_voice("openai"), do: "nova"
+  defp provider_default_voice("elevenlabs"), do: "21m00Tcm4TlvDq8ikWAM"
+  defp provider_default_voice(_), do: @default_voice
 
   defp idle_label(ms) do
     case Enum.find(@idle_options, fn {_label, value} -> value == ms end) do
