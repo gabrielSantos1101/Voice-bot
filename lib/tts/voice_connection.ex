@@ -132,7 +132,8 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
         server_id: state.guild_id,
         user_id: state.user_id,
         session_id: state.session_id,
-        token: state.token
+        token: state.token,
+        max_dave_protocol_version: 1
       }
     })
 
