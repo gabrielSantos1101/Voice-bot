@@ -21,6 +21,7 @@ defmodule ArcaneVoice.TTS.Audio do
     pcm_path = Path.join(@debug_dir, "last.pcm")
     args = [
       "-i", mp3_path,
+      "-af", "volume=4.0",
       "-f", "s16le",
       "-ar", "48000",
       "-ac", "1",
@@ -35,6 +36,11 @@ defmodule ArcaneVoice.TTS.Audio do
         {_output, 0} ->
           pcm = File.read!(pcm_path)
           pcm_size = byte_size(pcm)
+          if pcm_size > 0 do
+            mid_start = div(pcm_size, 2)
+            mid_bytes = if mid_start + 4 <= pcm_size, do: binary_part(pcm, mid_start, 4) |> Base.encode16(), else: "N/A"
+            Logger.info("Audio: PCM first4=#{if pcm_size >= 4, do: binary_part(pcm, 0, 4) |> Base.encode16(), else: "N/A"} mid4=#{mid_bytes}")
+          end
           non_zero_start = if pcm_size >= 2000 do
             pcm |> binary_part(0, 2000) |> :binary.bin_to_list() |> Enum.count(&(&1 != 0))
           else 0 end
