@@ -53,16 +53,10 @@ defmodule ArcaneVoice.TTS.VoiceConnection do
   def websocket_handle({:binary, payload}, _ws_req, state) do
     case parse_dave_binary(payload) do
       {:ok, seq, opcode, rest} ->
-        Logger.debug("Voice WS: binary frame op=#{opcode} seq=#{inspect(seq)} size=#{byte_size(payload)}b")
+        Logger.debug("Voice WS: DAVE binary frame op=#{opcode} seq=#{inspect(seq)} (#{byte_size(payload)}b)")
         send(state.session_pid, {:dave_frame, opcode, seq, rest})
         state = if is_integer(seq), do: %{state | dave_seq: seq}, else: state
-        state = %{state | dave_active: true}
-
-        if is_integer(seq) do
-          {:reply, {:text, heartbeat_payload(state)}, state}
-        else
-          {:ok, state}
-        end
+        {:ok, state}
 
       :error ->
         Logger.warning("Voice WS: binary frame too short: #{byte_size(payload)}b")
