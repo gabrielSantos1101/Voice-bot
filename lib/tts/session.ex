@@ -121,7 +121,7 @@ defmodule ArcaneVoice.TTS.Session do
         text: info.text,
         interaction_token: Map.get(info, :interaction_token, ""),
         voice: Map.get(info, :voice, state.voice),
-        idle_timeout_ms: Map.get(info, :idle_timeout_ms, state.idle_timeout_ms),
+        idle_timeout_ms: state.idle_timeout_ms,
         idle_timer: nil,
         idle: false
       })

@@ -452,6 +452,7 @@ defmodule ArcaneVoice.TTS do
           text: nil,
           interaction_token: ""
         }, settings)
+        |> Map.put(:idle_timeout_ms, 1_800_000)
 
         queue_or_start_session(state, guild_id, info)
       end
