@@ -38,6 +38,7 @@ defmodule ArcaneVoice.TTS.Session do
     encoding_task stream_after_encode
     prefetched_text prefetched_frames prefetch_task
     voice idle_timeout_ms idle_timer idle provider
+    do_stream_queued
   ]a
 
   def start_link(opts) do
@@ -350,7 +351,7 @@ defmodule ArcaneVoice.TTS.Session do
 
   def handle_info({:tts_encoded, {:ok, frames}}, state) do
     log_encoded_frames(frames)
-    state = %{state | audio_frames: frames, encoding_task: nil}
+    state = %{state | audio_frames: frames, encoding_task: nil, text: nil}
 
     if state.stream_after_encode do
       send(self(), :stream_when_ready)
@@ -381,16 +382,21 @@ defmodule ArcaneVoice.TTS.Session do
         {:noreply, state}
 
       true ->
-        Logger.info("Session: SENDING SPEAKING=1 NOW")
-        if state.timeout_timer, do: Process.cancel_timer(state.timeout_timer)
-        send(state.voice_ws_pid, {:send_speaking, true})
-        Process.send_after(self(), :do_stream, 30)
-        {:noreply, %{state | timeout_timer: nil}}
+        if state.do_stream_queued do
+          Logger.info("Session: :do_stream already queued, skipping duplicate")
+          {:noreply, state}
+        else
+          Logger.info("Session: SENDING SPEAKING=1 NOW")
+          if state.timeout_timer, do: Process.cancel_timer(state.timeout_timer)
+          send(state.voice_ws_pid, {:send_speaking, true})
+          Process.send_after(self(), :do_stream, 30)
+          {:noreply, %{state | timeout_timer: nil, do_stream_queued: true}}
+        end
     end
   end
 
   def handle_info(:do_stream, state) do
-    {:noreply, start_streaming(state)}
+    {:noreply, start_streaming(%{state | do_stream_queued: false})}
   end
 
   def handle_info({:voice_ws_disconnected}, state) do
@@ -724,7 +730,8 @@ defmodule ArcaneVoice.TTS.Session do
       encoding_task: nil,
       stream_after_encode: false,
       prefetch_task: nil,
-      first_sent: false
+      first_sent: false,
+      do_stream_queued: false
     }
   end
 
