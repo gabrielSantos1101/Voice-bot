@@ -21,7 +21,6 @@ defmodule ArcaneVoice.TTS.Audio do
     pcm_path = Path.join(@debug_dir, "last.pcm")
     args = [
       "-i", mp3_path,
-      "-af", "volume=4.0",
       "-f", "s16le",
       "-ar", "48000",
       "-ac", "1",
