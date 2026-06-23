@@ -893,7 +893,7 @@ defp handle_settings_slash(data, state) do
 
   defp provider_default_voice("edge"), do: "pt-BR-FranciscaNeural"
   defp provider_default_voice("openai"), do: "nova"
-  defp provider_default_voice("elevenlabs"), do: "21m00Tcm4TlvDq8ikWAM"
+  defp provider_default_voice("elevenlabs"), do: "YbP0Eq5RE5uOoCEl7F3T"
   defp provider_default_voice(_), do: @default_voice
 
   defp idle_label(ms) do

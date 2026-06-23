@@ -57,5 +57,5 @@ defmodule ArcaneVoice.TTS.Engine.ElevenLabs do
       raise "ELEVENLABS_API_KEY is not set"
   end
 
-  def default_voice, do: "21m00Tcm4TlvDq8ikWAM"
+  def default_voice, do: "YbP0Eq5RE5uOoCEl7F3T"
 end
