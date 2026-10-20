@@ -23,7 +23,7 @@ defmodule ArcaneVoice.TTS.Session do
     "xsalsa20_poly1305_rtpsize" => :chacha20_poly1305
   }
 
-  @timeout_ms 60_000
+  @timeout_ms 120_000
 
   defstruct ~w[
     guild_id channel_id text bot_user_id
@@ -83,6 +83,12 @@ defmodule ArcaneVoice.TTS.Session do
     Logger.warning("Session: timeout for guild #{state.guild_id}")
     notify_ended(state)
     {:stop, :normal, state}
+  end
+
+  def handle_info(:encoding_timeout, state) do
+    Logger.warning("Session: encoding timeout for guild #{state.guild_id}")
+    notify_ended(state)
+    {:stop, :encoding_timeout, state}
   end
 
   def handle_info({:prefetch, text}, state) do
@@ -212,6 +218,11 @@ defmodule ArcaneVoice.TTS.Session do
 
     if selected_mode do
       state = %{state | ssrc: ssrc, voice_ip: ip, voice_port: port, encryption_mode: selected_mode}
+
+      if state.timeout_timer do
+        Process.cancel_timer(state.timeout_timer)
+        state = %{state | timeout_timer: nil}
+      end
 
       case discover_ip(state) do
         {:ok, state} ->
@@ -351,7 +362,7 @@ defmodule ArcaneVoice.TTS.Session do
 
   def handle_info({:tts_encoded, {:ok, frames}}, state) do
     log_encoded_frames(frames)
-    state = %{state | audio_frames: frames, encoding_task: nil, text: nil}
+    state = %{state | audio_frames: frames, encoding_task: nil, text: nil, timeout_timer: nil}
 
     if state.stream_after_encode do
       send(self(), :stream_when_ready)
@@ -363,6 +374,7 @@ defmodule ArcaneVoice.TTS.Session do
 
   def handle_info({:tts_encoded, {:error, reason}}, state) do
     Logger.error("Session: TTS encoding failed: #{inspect(reason)}")
+    if state.timeout_timer, do: Process.cancel_timer(state.timeout_timer)
     {:stop, :tts_failed, %{state | encoding_task: nil}}
   end
 
@@ -621,7 +633,10 @@ defmodule ArcaneVoice.TTS.Session do
           send(caller, {:tts_encoded, encode_tts(%{state | text: text})})
         end)
 
-      %{state | encoding_task: task, stream_after_encode: stream_after}
+      # Set encoding timeout (90s) as safety net
+      encoding_timer = Process.send_after(self(), :encoding_timeout, 90_000)
+
+      %{state | encoding_task: task, stream_after_encode: stream_after, timeout_timer: encoding_timer}
     end
   end
 
