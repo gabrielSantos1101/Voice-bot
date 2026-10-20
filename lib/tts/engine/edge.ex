@@ -38,7 +38,14 @@ defmodule ArcaneVoice.TTS.Engine.Edge do
         Audio.to_pcm(mp3, "mp3")
 
       {output, exit_code} ->
-        {:error, "edge-tts failed (exit #{exit_code}): #{output}"}
+        error_msg = "edge-tts failed (exit #{exit_code}): #{output}"
+        
+        if String.contains?(output, "403") or String.contains?(output, "WSServerHandshakeError") do
+          Logger.warning("EdgeTTS: Microsoft blocked request (403), marking as unavailable")
+          {:error, {:edge_blocked, error_msg}}
+        else
+          {:error, error_msg}
+        end
     end
   end
 

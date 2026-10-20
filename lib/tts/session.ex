@@ -540,6 +540,9 @@ defmodule ArcaneVoice.TTS.Session do
       {:ok, pcm} ->
         {:ok, pcm}
 
+      {:error, {:edge_blocked, _}} ->
+        try_fallback_provider(text, selected_voice, provider)
+
       {:error, reason} when selected_voice != fallback_voice ->
         Logger.warning(
           "Session: TTS voice #{selected_voice} failed, falling back to #{fallback_voice}: #{inspect(reason)}"
@@ -556,6 +559,39 @@ defmodule ArcaneVoice.TTS.Session do
       error ->
         error
     end
+  end
+
+  defp try_fallback_provider(text, _failed_voice, _failed_provider) do
+    fallback_providers = [:openai, :elevenlabs]
+    
+    Enum.reduce_while(fallback_providers, {:error, "no fallback providers"}, fn provider, _ ->
+      api_key = case provider do
+        :openai -> System.get_env("OPENAI_API_KEY")
+        :elevenlabs -> System.get_env("ELEVENLABS_API_KEY")
+      end
+      
+      if is_nil(api_key) or api_key == "" do
+        Logger.info("Session: #{provider} not configured (no API key), skipping")
+        {:cont, {:error, "not configured"}}
+      else
+        Logger.info("Session: Edge TTS blocked, trying fallback provider: #{provider}")
+        
+        fallback_engine = ArcaneVoice.TTS.Engine.build(
+          provider: provider,
+          voice: provider_default_voice(to_string(provider))
+        )
+        
+        case ArcaneVoice.TTS.Engine.synthesize(fallback_engine, text) do
+          {:ok, pcm} ->
+            Logger.info("Session: Fallback to #{provider} succeeded")
+            {:halt, {:ok, pcm}}
+          
+          {:error, reason} ->
+            Logger.warning("Session: Fallback to #{provider} failed: #{inspect(reason)}")
+            {:cont, {:error, reason}}
+        end
+      end
+    end)
   end
 
   defp maybe_start_encoding(%{audio_frames: frames} = state, stream_after) when not is_nil(frames) do
@@ -736,4 +772,8 @@ defmodule ArcaneVoice.TTS.Session do
   end
 
   defp transport_nonce(n4), do: <<n4::binary, 0::size(64)>>
+
+  defp provider_default_voice("openai"), do: "nova"
+  defp provider_default_voice("elevenlabs"), do: "21m00Tcm4TlvDq8ikWAM"
+  defp provider_default_voice(_), do: "pt-BR-FranciscaNeural"
 end
