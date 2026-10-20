@@ -35,12 +35,13 @@ defmodule ArcaneVoice.TTS.Engine do
     impl_for(engine.provider).describe_voice(engine.voice)
   end
 
-  defp impl_for(:edge), do: ArcaneVoice.TTS.Engine.Edge
   defp impl_for(:openai), do: ArcaneVoice.TTS.Engine.OpenAI
   defp impl_for(:elevenlabs), do: ArcaneVoice.TTS.Engine.ElevenLabs
   defp impl_for(:azure), do: ArcaneVoice.TTS.Engine.Azure
+  defp impl_for(:playht), do: ArcaneVoice.TTS.Engine.PlayHT
+  defp impl_for(:google), do: ArcaneVoice.TTS.Engine.Google
 
   defp configured_provider do
-    Application.get_env(:arcane_voice, :tts_provider, :edge)
+    Application.get_env(:arcane_voice, :tts_provider, :playht)
   end
 end

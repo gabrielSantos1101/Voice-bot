@@ -8,40 +8,101 @@ defmodule ArcaneVoice.TTS do
   @max_text_length 300
 
   @voices [
+    # PlayHT voices
     %{
-      label: "Brasil - Francisca",
+      label: "Brasil - Fabiana (PlayHT)",
+      value: "pt-BR-Fabiana",
+      description: "Português do Brasil, voz feminina (PlayHT)"
+    },
+    %{
+      label: "Brasil - Gabriel (PlayHT)",
+      value: "pt-BR-Gabriel",
+      description: "Português do Brasil, voz masculina (PlayHT)"
+    },
+    # Google Neural2 voices
+    %{
+      label: "Brasil - Neural2 A (Google)",
+      value: "pt-BR-Neural2-A",
+      description: "Português do Brasil, voz feminina (Google Neural2)"
+    },
+    %{
+      label: "Brasil - Neural2 B (Google)",
+      value: "pt-BR-Neural2-B",
+      description: "Português do Brasil, voz masculina (Google Neural2)"
+    },
+    %{
+      label: "Portugal - Neural2 A (Google)",
+      value: "pt-PT-Neural2-A",
+      description: "Português de Portugal, voz feminina (Google Neural2)"
+    },
+    %{
+      label: "Portugal - Neural2 B (Google)",
+      value: "pt-PT-Neural2-B",
+      description: "Português de Portugal, voz masculina (Google Neural2)"
+    },
+    # OpenAI voices
+    %{
+      label: "Nova (OpenAI)",
+      value: "nova",
+      description: "English US, female voice"
+    },
+    %{
+      label: "Alloy (OpenAI)",
+      value: "alloy",
+      description: "English US, neutral voice"
+    },
+    %{
+      label: "Echo (OpenAI)",
+      value: "echo",
+      description: "English US, male voice"
+    },
+    %{
+      label: "Fable (OpenAI)",
+      value: "fable",
+      description: "English UK, storytelling voice"
+    },
+    %{
+      label: "Shimmer (OpenAI)",
+      value: "shimmer",
+      description: "English US, female voice"
+    },
+    %{
+      label: "Coral (OpenAI)",
+      value: "coral",
+      description: "English US, energetic female voice"
+    },
+    # ElevenLabs voices (use voice IDs)
+    %{
+      label: "Rachel (ElevenLabs)",
+      value: "21m00Tcm4TlvDq8ikWAM",
+      description: "English, female voice"
+    },
+    %{
+      label: "Domi (ElevenLabs)",
+      value: "AZnzlk1XvdvUeBnXmlld",
+      description: "English, female voice"
+    },
+    %{
+      label: "Bella (ElevenLabs)",
+      value: "EXAVITQu4vr4xnSDxMaL",
+      description: "English, female voice"
+    },
+    # Azure voices
+    %{
+      label: "Brasil - Francisca (Azure)",
       value: "pt-BR-FranciscaNeural",
-      description: "Português do Brasil, voz feminina"
+      description: "Português do Brasil, voz feminina (Azure)"
     },
     %{
-      label: "Brasil - Antonio",
+      label: "Brasil - Antonio (Azure)",
       value: "pt-BR-AntonioNeural",
-      description: "Português do Brasil, voz masculina"
-    },
-    %{
-      label: "Portugal - Raquel",
-      value: "pt-PT-RaquelNeural",
-      description: "Português de Portugal, voz feminina"
-    },
-    %{
-      label: "Portugal - Duarte",
-      value: "pt-PT-DuarteNeural",
-      description: "Português de Portugal, voz masculina"
-    },
-    %{
-      label: "English - Jenny",
-      value: "en-US-JennyNeural",
-      description: "English US, feminine voice"
-    },
-    %{
-      label: "English - Guy",
-      value: "en-US-GuyNeural",
-      description: "English US, masculine voice"
+      description: "Português do Brasil, voz masculina (Azure)"
     }
   ]
 
   @providers [
-    %{label: "Microsoft Edge (gratuito)", value: "edge", description: "Vozes neurais da Microsoft, sem custo (pode falhar)"},
+    %{label: "PlayHT (grátis 12.5k/mês)", value: "playht", description: "PlayHT API, 12.5k chars/mês grátis, sem cartão"},
+    %{label: "Google Cloud TTS (grátis 1M/mês)", value: "google", description: "Google Neural2, 1M chars/mês grátis perpétuo, precisa cartão"},
     %{label: "Azure Speech (oficial, pago)", value: "azure", description: "Azure Cognitive Services Speech, requer key + region"},
     %{label: "OpenAI (pago)", value: "openai", description: "Vozes da OpenAI, requer API key"},
     %{label: "ElevenLabs (pago)", value: "elevenlabs", description: "Vozes realistas da ElevenLabs, requer API key"}
@@ -811,10 +872,12 @@ defp handle_settings_slash(data, state) do
     end
   end
 
-  defp provider_default_voice("edge"), do: "pt-BR-FranciscaNeural"
   defp provider_default_voice("openai"), do: "nova"
   defp provider_default_voice("elevenlabs"), do: "21m00Tcm4TlvDq8ikWAM"
-  defp provider_default_voice(_), do: @default_voice
+  defp provider_default_voice("azure"), do: "pt-BR-FranciscaNeural"
+  defp provider_default_voice("playht"), do: "pt-BR-Fabiana"
+  defp provider_default_voice("google"), do: "pt-BR-Neural2-A"
+  defp provider_default_voice(_), do: "pt-BR-Fabiana"
 
   defp idle_label(ms) do
     case Enum.find(@idle_options, fn {_label, value} -> value == ms end) do
