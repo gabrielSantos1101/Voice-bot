@@ -599,8 +599,15 @@ defmodule ArcaneVoice.TTS.Session do
             {:halt, {:ok, pcm}}
           
           {:error, reason} ->
-            Logger.warning("Session: Fallback to #{provider} failed: #{inspect(reason)}")
-            {:cont, {:error, reason}}
+            reason_str = inspect(reason)
+            # Skip ElevenLabs if payment required (free tier limitation)
+            if provider == :elevenlabs and (String.contains?(reason_str, "402") or String.contains?(reason_str, "payment_required")) do
+              Logger.warning("Session: ElevenLabs free tier cannot use library voices, skipping")
+              {:cont, {:error, "payment_required"}}
+            else
+              Logger.warning("Session: Fallback to #{provider} failed: #{reason_str}")
+              {:cont, {:error, reason}}
+            end
         end
       end
     end)
