@@ -38,6 +38,7 @@ defmodule ArcaneVoice.TTS.Engine do
   defp impl_for(:edge), do: ArcaneVoice.TTS.Engine.Edge
   defp impl_for(:openai), do: ArcaneVoice.TTS.Engine.OpenAI
   defp impl_for(:elevenlabs), do: ArcaneVoice.TTS.Engine.ElevenLabs
+  defp impl_for(:azure), do: ArcaneVoice.TTS.Engine.Azure
 
   defp configured_provider do
     Application.get_env(:arcane_voice, :tts_provider, :edge)

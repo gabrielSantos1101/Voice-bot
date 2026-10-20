@@ -41,7 +41,8 @@ defmodule ArcaneVoice.TTS do
   ]
 
   @providers [
-    %{label: "Microsoft Edge (gratuito)", value: "edge", description: "Vozes neurais da Microsoft, sem custo"},
+    %{label: "Microsoft Edge (gratuito)", value: "edge", description: "Vozes neurais da Microsoft, sem custo (pode falhar)"},
+    %{label: "Azure Speech (oficial, pago)", value: "azure", description: "Azure Cognitive Services Speech, requer key + region"},
     %{label: "OpenAI (pago)", value: "openai", description: "Vozes da OpenAI, requer API key"},
     %{label: "ElevenLabs (pago)", value: "elevenlabs", description: "Vozes realistas da ElevenLabs, requer API key"}
   ]

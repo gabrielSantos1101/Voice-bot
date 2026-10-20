@@ -797,5 +797,6 @@ defmodule ArcaneVoice.TTS.Session do
 
   defp provider_default_voice("openai"), do: "nova"
   defp provider_default_voice("elevenlabs"), do: "21m00Tcm4TlvDq8ikWAM"
+  defp provider_default_voice("azure"), do: "pt-BR-FranciscaNeural"
   defp provider_default_voice(_), do: "pt-BR-FranciscaNeural"
 end
